@@ -1,0 +1,102 @@
+.sidebar {
+    transition: all 0.3s ease;
+}
+.sidebar.collapsed {
+    width: 70px;
+}
+.sidebar.collapsed .sidebar-text {
+    display: none;
+}
+.sidebar.collapsed .logo-text {
+    display: none;
+}
+.sidebar.collapsed .user-info {
+    display: none;
+}
+.content {
+    transition: all 0.3s ease;
+}
+.content.expanded {
+    margin-left: 70px;
+}
+.fade-in {
+    animation: fadeIn 0.3s ease-in;
+}
+@keyframes fadeIn {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+.file-upload {
+    border: 2px dashed #cbd5e0;
+    transition: all 0.3s ease;
+}
+.file-upload:hover {
+    border-color: #4f46e5;
+    background-color: #f8fafc;
+}
+.feedback-card {
+    transition: all 0.3s ease;
+}
+.feedback-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+}
+/* Style section numbers and headers */
+.markdown-body strong {
+    font-weight: bold;
+}
+
+/* Targeting numbered lines like "8. Reference vs. Citation..." */
+.markdown-body p {
+    margin: 1.2em 0;
+    padding-left: 4px;
+}
+
+/* Highlight numbered section headers */
+.markdown-body p strong:first-child {
+    color: #2a4d8f; /* dark blue */
+    margin-right: 6px;
+}
+
+/* Optional: highlight the entire first part of the line until the colon */
+.markdown-body p strong {
+    display: inline-block;
+    font-weight: bold;
+    margin-bottom: 4px;
+}
+
+/* Table styling */
+.markdown-body table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 16px 0;
+}
+
+.markdown-body th, .markdown-body td {
+    border: 1px solid #ccc;
+    padding: 12px 16px;
+    text-align: left;
+    vertical-align: top;
+}
+
+.markdown-body th {
+    background-color: #f0f2f5;
+    font-weight: bold;
+}
+
+.markdown-body tr:nth-child(even) {
+    background-color: #f9f9f9;
+}
+
+.markdown-body h3 {
+    padding-top: 1rem;
+    color: #9c7200;
+    font-weight: bold;
+}
+
+.markdown-body li::before {
+    content: "• ";
+}
+.markdown-body li:empty {
+  list-style-type: none;
+}

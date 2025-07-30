@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ThesisAI Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="bg-gray-50">
+    <div id="registerSection" class="min-h-screen flex items-center justify-center p-4">
+        <div class="bg-white rounded-lg shadow-xl p-8 w-full max-w-md">
+            <div class="text-center mb-8">
+                <i class="fas fa-graduation-cap text-indigo-600 text-5xl mb-4"></i>
+                <h1 class="text-3xl font-bold text-gray-800">ThesisAI</h1>
+                <p class="text-gray-600 mt-2">Create your account</p>
+            </div>
+            
+            <form id="registerForm" class="space-y-6">
+                <div>
+                    <label for="reg-username" class="block text-sm font-medium text-gray-700">Username</label>
+                    <input type="text" id="reg-username" name="username" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+<!--                 <div>
+                    <label for="reg-email" class="block text-sm font-medium text-gray-700">Email</label>
+                    <input type="email" id="reg-email" name="email" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+ -->                <div>
+                    <label for="reg-password" class="block text-sm font-medium text-gray-700">Password</label>
+                    <input type="password" id="reg-password" name="password" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <label for="reg-password-confirm" class="block text-sm font-medium text-gray-700">Confirm Password</label>
+                    <input type="password" id="reg-password-confirm" name="password_confirm" required class="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500">
+                </div>
+                <div>
+                    <button type="submit" class="w-full flex justify-center py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500">
+                        Register
+                    </button>
+                </div>
+            </form>
+            
+            <div class="mt-6 text-center">
+                <a href="#" onclick="event.preventDefault(); history.back();" class="text-indigo-600 hover:underline text-sm">Go back to login</a>
+            </div>
+            
+            <div id="registerError" class="mt-4 text-center text-sm text-red-600 hidden">
+                Registration failed. Please check your details.
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 hidden">
+        <div class="bg-white rounded-lg p-6 flex flex-col items-center">
+            <div class="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-indigo-500 mb-4"></div>
+            <p class="text-gray-700">Processing, please wait...</p>
+        </div>
+    </div>
+
+    <!-- main.js dependant -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    
+    <script src="main.js"></script>
+    <script>
+async function handleRegister(e) {
+    e.preventDefault();
+
+    // Collect form values
+    const username = document.getElementById('reg-username').value;
+    // const email = document.getElementById('reg-email').value;
+    // const full_name = document.getElementById('reg-fullname').value;
+    const password = document.getElementById('reg-password').value;
+    const role = document.getElementById('reg-role').value;
+    const supervisor_id = document.getElementById('reg-supervisor') ? document.getElementById('reg-supervisor').value : '';
+
+    // Show loading (if you have a function for it)
+    showLoading();
+
+    // Prepare form data
+    const params = new URLSearchParams();
+    params.append('username', username);
+    params.append('email', email);
+    params.append('full_name', full_name);
+    params.append('password', password);
+    params.append('role', role);
+    if (supervisor_id) params.append('supervisor_id', supervisor_id);
+
+    // Hide previous messages
+    document.getElementById('registerError').classList.add('hidden');
+    let successBox = document.getElementById('registerSuccess');
+    if (successBox) successBox.classList.add('hidden');
+
+    try {
+        // If your API requires authentication for registration, add the token header here
+        // const authToken = localStorage.getItem('authToken');
+        const response = await axios.post(`${API_BASE_URL}/register`, params, {
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded',
+                // ...(authToken && { 'Authorization': `Bearer ${authToken}` })
+            }
+        });
+
+        hideLoading();
+
+        // Show success
+        if (!successBox) {
+            successBox = document.createElement('div');
+            successBox.id = 'registerSuccess';
+            successBox.className = 'mt-4 text-center text-sm text-green-600';
+            document.getElementById('registerForm').parentNode.insertBefore(successBox, document.getElementById('registerForm').nextSibling);
+        }
+        successBox.textContent = "Registration successful! You can now log in.";
+        successBox.classList.remove('hidden');
+        document.getElementById('registerForm').reset();
+
+    } catch (error) {
+        hideLoading();
+        const errorBox = document.getElementById('registerError');
+        let msg = "Registration failed. Please try again.";
+
+        if (error.response && error.response.data && error.response.data.detail) {
+            const detail = error.response.data.detail;
+            if (detail === "Username already registered") {
+                msg = "This username is already taken. Please choose another.";
+            } else if (detail === "Invalid role") {
+                msg = "Invalid role selected. Please choose a valid role.";
+            } else if (detail === "Students must have a supervisor") {
+                msg = "Students must select a supervisor.";
+            } else if (detail === "Supervisor not found") {
+                msg = "Selected supervisor was not found.";
+            } else {
+                msg = detail;
+            }
+        } else if (error.message && error.message === 'Network Error') {
+            msg = "Network error. Please check your connection.";
+        }
+
+        errorBox.textContent = msg;
+        errorBox.classList.remove('hidden');
+    }
+}
+
+    </script>
+</body>
+</html>
