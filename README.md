@@ -1,7 +1,3 @@
-Here's a professional and well-structured `README.md` file for your **AI-Based Thesis Analysis & Feedback Tool** project:
-
----
-
 # AI-Based Thesis Analysis & Feedback Tool
 
 ## 🧠 Overview
@@ -95,16 +91,8 @@ This tool is designed to assist both students and thesis supervisors in the bach
 
 ## 📌 License
 
-*Include your license information here (e.g., MIT, Apache 2.0).*
+*You can use this project freely.*
 
 ## 🚀 Getting Started
 
 *Coming soon: installation and usage instructions.*
-
-## 🤝 Contributing
-
-*Contributions are welcome! Open an issue or submit a pull request for improvements.*
-
----
-
-Let me know if you'd like me to tailor this for a specific programming stack or deployment setup.
