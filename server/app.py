@@ -1,4 +1,4 @@
-# pip install aiofiles pydantic[email] python-docx PyMuPDF pdfplumber chardet python-multipart fastapi uvicorn passlib[bcrypt] python-jose[cryptography] python-dotenv requests beautifulsoup4 pandas
+# pip install aiofiles pydantic[email] python-docx PyMuPDF pdfplumber chardet python-multipart fastapi uvicorn passlib[bcrypt] python-jose[cryptography] python-dotenv requests beautifulsoup4 pandas openai
 
 import fitz  # PyMuPDF
 import docx
@@ -12,9 +12,10 @@ import os, time, re, math
 import uuid
 import requests, random
 import json
-from dotenv import load_dotenv
+import aiohttp
 from datetime import datetime
-from typing import List, Optional, AsyncGenerator
+from typing import List, Optional, AsyncGenerator, Dict, Any
+from enum import Enum
 
 from fastapi import (
     FastAPI, 
@@ -47,24 +48,21 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("pdfminer").setLevel(logging.WARNING)
 
-# Configuration
-SECRET_KEY = "your-secret-key-here"  # In production, use environment variables
-ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
-UPLOAD_DIR = "thesis_uploads"
-FEEDBACK_DIR = "feedback_files"
-AI_RESPONSES_DIR = "ai_responses"
+# Import our configuration
+from config import config
 
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-os.makedirs(FEEDBACK_DIR, exist_ok=True)
-os.makedirs(AI_RESPONSES_DIR, exist_ok=True)
+# AI Provider Enum
+class AIProvider(str, Enum):
+    OPENAI = "openai"
+    DEEPSEEK = "deepseek"
+    OPENROUTER = "openrouter"
 
 # Initialize FastAPI
 app = FastAPI(
     title="ThesisAI API",
     description="API for ThesisAI application with student, supervisor, and admin roles",
     version="1.0.0",
-    debug=False,
+    debug=config.DEBUG,
 )
 
 # CORS Middleware
@@ -115,6 +113,8 @@ class AIRequest(BaseModel):
     thesis_id: str
     custom_instructions: str
     predefined_questions: List[str]
+    provider: AIProvider = None  # Will use active provider if None
+    model: Optional[str] = None
 
 # Mock database
 fake_users_db = {
@@ -184,7 +184,7 @@ def authenticate_user(fake_db, username: str, password: str):
 
 def create_access_token(data: dict):
     to_encode = data.copy()
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, config.SECRET_KEY, algorithm=config.ALGORITHM)
     return encoded_jwt
 
 async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security)):
@@ -195,7 +195,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     )
     try:
         token = credentials.credentials
-        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        payload = jwt.decode(token, config.SECRET_KEY, algorithms=[config.ALGORITHM])
         username: str = payload.get("sub")
         if username is None:
             raise credentials_exception
@@ -213,10 +213,7 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 def get_student_name(student_id: str) -> str:
-    # Find the student in the fake users database using their student_id
     student = next((user for user in fake_users_db.values() if user.id == student_id), None)
-    
-    # Check if student exists
     if student and student.role == "student":
         return student.full_name
     else:
@@ -239,12 +236,26 @@ def extract_text_from_file(file_path: str) -> str:
     file_ext = os.path.splitext(file_path)[1].lower()
 
     if file_ext == ".txt":
-        # For text files, read directly
-        with open(file_path, "r", encoding="utf-8") as file:
-            return file.read()
+        encodings = ['utf-8', 'latin-1', 'cp1252', 'iso-8859-1']
+        for encoding in encodings:
+            try:
+                with open(file_path, "r", encoding=encoding) as file:
+                    return file.read()
+            except UnicodeDecodeError:
+                continue
+        try:
+            with open(file_path, "rb") as file:
+                raw_data = file.read()
+                detected_encoding = chardet.detect(raw_data)['encoding']
+                if detected_encoding:
+                    return raw_data.decode(detected_encoding)
+                else:
+                    return raw_data.decode('utf-8', errors='ignore')
+        except Exception as e:
+            print(f"Error reading text file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error reading text file: {str(e)}")
 
     elif file_ext == ".pdf":
-        # For PDFs, use PyMuPDF (fitz) or pdfplumber to extract text
         try:
             with pdfplumber.open(file_path) as pdf:
                 text = ""
@@ -256,7 +267,6 @@ def extract_text_from_file(file_path: str) -> str:
             raise HTTPException(status_code=500, detail=f"Error extracting PDF text: {str(e)}")
 
     elif file_ext == ".docx":
-        # For DOCX files, use python-docx to extract text
         try:
             doc = docx.Document(file_path)
             text = ""
@@ -271,495 +281,344 @@ def extract_text_from_file(file_path: str) -> str:
         print("Unsupported file format")
         raise HTTPException(status_code=400, detail="Unsupported file format")
 
-# AI Integration
-class AIModel:
+# Unified AI Interface
+class UnifiedAIModel:
     def __init__(self):
-        self.api_key = self.get_api_key()  # Use environment variables in production
-        self.seed = 1
-        self.api_url = "https://openrouter.ai/api/v1/chat/completions"  # OpenRouter API URL
-            # self.api_url = "https://llm.chutes.ai/v1/chat/completions" # chutes.ai
-        # self.api_default_model = "deepseek/deepseek-chat-v3-0324:free"
+        self.config = config
+        self.seed = config.AI_SEED
+        self.provider_config = config.get_ai_provider_config()
 
-        # self.api_default_model = "deepseek/deepseek-chat-v3-0324"
-        # self.api_default_model = "google/gemini-2.5-pro-exp-03-25:free"
-        # self.api_default_model = "deepseek-ai/DeepSeek-V3-0324"
-        self.api_default_model = "deepseek/deepseek-r1:free"
-        # self.api_default_model = "google/gemini-2.5-pro-preview-03-25"
+    def get_api_key(self, provider: AIProvider) -> Optional[str]:
+        """Get API key for the specified provider"""
+        provider_name = provider.value
+        return self.provider_config.get(provider_name, {}).get('api_key')
 
-        self.max_tokens = 18000
+    def get_model(self, provider: AIProvider, model: Optional[str] = None) -> str:
+        """Get the model to use for the specified provider"""
+        if model:
+            return model
+        provider_name = provider.value
+        return self.provider_config.get(provider_name, {}).get('default_model', 'gpt-4o')
 
-    def get_context_length_by_id(self, model_id, file_path='openrouter_models.json'):
-        # Open the JSON file
-        with open(file_path, 'r') as f:
-            data = json.load(f)
-        
-        # Iterate through the list of models in the 'data' field
-        for model in data['data']:
-            # Check if the 'id' matches the given model_id
-            if model['id'] == model_id:
-                # Return the context_length
-                return model['context_length']
-        
-        # If the model_id is not found, return None or a message
-        return None
-
-    def get_api_key(self):
-        # Load .env file
-        load_dotenv()
-
-        # Try to get API_KEY from environment variables
-        api_key = os.getenv('OPENROUTER_API_KEY')
-
+    def get_headers(self, provider: AIProvider) -> Dict[str, str]:
+        """Get headers for the specified provider"""
+        api_key = self.get_api_key(provider)
         if not api_key:
-            raise ValueError("OPENROUTER_API_KEY is not set")
-
-        return api_key
-
-    async def is_ref_valid(self, file_path: str, statement: str) -> dict:
-        """
-        Extracts text from a file, sends it to OpenRouter along with a statement,
-        and checks if the statement is related to the file's content.
-        Returns structured JSON output with summary, judgement, reasoning, and evidence.
-        """
-
-        # Step 1: Extract text from the file
-        try:
-            article_text = extract_text_from_file(file_path)
-        except Exception as e:
-            raise HTTPException(status_code=500, detail=f"Failed to extract text: {str(e)}")
-
-        # Step 2: Instructions and prompt for OpenRouter
-        system_prompt = """
-            Analyze the following article and determine whether the given statement is related to it.
-            Your answer must be returned in valid JSON format with the structure provided below.
-
-            Instructions:
-            1. Read and understand the main idea of the article.
-            2. Assess whether the statement is directly or indirectly related to the article’s content.
-            3. Return your output strictly in the following JSON format:
-            {
-              "summary": "A brief summary of the article's main idea.",
-              "judgement": true,
-              "reasoning": "Explanation of why the statement is considered related or not.",
-              "evidence": "Relevant excerpt(s) or references from the article that support the judgement."
-            }
-            Set "judgement" to true if the statement is related, otherwise set it to false.
-            Do not add any extra commentary outside of the JSON.
-        """
-
-        user_prompt = f"""
-            Input Article:
-            {article_text}
-
-            Statement:
-            {statement}
-        """
-
+            raise HTTPException(status_code=500, detail=f"No API key configured for {provider}")
+        
         headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "ReferenceCheck"
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json"
         }
+        
+        # Add provider-specific headers
+        if provider == AIProvider.OPENROUTER:
+            headers.update({
+                "HTTP-Referer": "http://localhost",
+                "X-Title": "ThesisAI"
+            })
+        
+        return headers
 
+    def get_api_url(self, provider: AIProvider) -> str:
+        """Get API URL for the specified provider"""
+        provider_name = provider.value
+        return self.provider_config.get(provider_name, {}).get('api_url', '')
+
+    async def make_request(self, provider: AIProvider, messages: List[Dict[str, str]], 
+                          model: Optional[str] = None, stream: bool = False) -> Dict[str, Any]:
+        """Make a request to the specified AI provider"""
+        api_key = self.get_api_key(provider)
+        if not api_key:
+            raise HTTPException(status_code=500, detail=f"No API key configured for {provider}")
+        
+        model_name = self.get_model(provider, model)
+        headers = self.get_headers(provider)
+        api_url = self.get_api_url(provider)
+        
         payload = {
-            "model": self.api_default_model,
-            "messages": [
-                {"role": "system", "content": system_prompt.strip()},
-                {"role": "user", "content": user_prompt.strip()}
-            ],
-            "stream": False
+            "model": model_name,
+            "messages": messages,
+            "stream": stream,
         }
-
-        # Step 3: Send to OpenRouter
+        
+        # Add provider-specific parameters
+        if provider == AIProvider.OPENROUTER:
+            payload["seed"] = self.seed
+        
         try:
-            response = requests.post(self.api_url, headers=headers, json=payload, timeout=60)
+            response = requests.post(api_url, headers=headers, json=payload, timeout=60)
             response.raise_for_status()
-            message = response.json()["choices"][0]["message"]["content"]
-            return json.loads(message)
+            return response.json()
+        except requests.exceptions.RequestException as e:
+            print(f"❌ Error with {provider}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
 
-        except (requests.exceptions.RequestException, json.JSONDecodeError, KeyError) as e:
-            print("❌ Error in is_ref_valid:", str(e))
-            return {
-                "summary": "",
-                "judgement": False,
-                "reasoning": "AI service failed or returned invalid JSON.",
-                "evidence": ""
-            }
-
-    def extract_references(self, text):
-        possible_ref_section = text.split('\n')[-300:]  # last 300 lines
-        references = []
-        in_ref_section = False
-        for line in possible_ref_section:
-            if re.search(r'\b(references|bibliography)\b', line, re.I):
-                in_ref_section = True
-            if in_ref_section and line.strip():
-                references.append(line.strip())
-        print(f"Extracted {len(references)} references (raw).")
-        return references
-
-    def extract_intext_citations(self, text):
-        patterns = [
-            r'\(([^()]+?, \d{4}[a-z]?)\)',  # APA-style
-            r'\[\d+\]',                     # IEEE-style
-            r'\([A-Z][a-z]+ et al\., \d{4}\)'  # APA multiple authors
-        ]
-        citations = set()
-        for pattern in patterns:
-            found = re.findall(pattern, text)
-            citations.update(found)
-        print(f"Extracted {len(citations)} in-text citations.")
-        return list(citations)
-
-    def fetch_reference_text_from_url(self, url, file_path):
+    async def make_streaming_request(self, provider: AIProvider, messages: List[Dict[str, str]], 
+                                   model: Optional[str] = None, pacing_delay: float = 0.01) -> AsyncGenerator[str, None]:
+        """Make a streaming request to the specified AI provider with improved UX"""
+        api_key = self.get_api_key(provider)
+        if not api_key:
+            print(f"🔄 Using fallback mode for {provider} - no API key available")
+            yield f"data: {json.dumps({'type': 'status', 'content': f'[FALLBACK MODE] {provider.value.upper()} Analysis'})}\n\n"
+            yield f"data: {json.dumps({'type': 'content', 'content': f'This is a simulated response since no API key is configured for {provider}.'})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            return
+        
+        model_name = self.get_model(provider, model)
+        headers = self.get_headers(provider)
+        api_url = self.get_api_url(provider)
+        
+        payload = {
+            "model": model_name,
+            "messages": messages,
+            "stream": True,
+        }
+        
+        if provider == AIProvider.OPENROUTER:
+            payload["seed"] = self.seed
+        
         try:
-            response = requests.get(url, timeout=5)
-            soup = BeautifulSoup(response.content, "html.parser")
-            for script in soup(["script", "style"]):
-                script.extract()
-            text = soup.get_text(separator=' ')
-            text = ' '.join(text.split())
-            if not text:
-                return "", False, ""
-            is_valid = self.is_ref_valid(file_path, text)
-            sentences = re.split(r'(?<=[.!?]) +', text)
-            random_text = random.choice(sentences) if sentences else ""
-            return text, is_valid, random_text
+            # Send initial status
+            yield f"data: {json.dumps({'type': 'status', 'content': f'Connecting to {provider.value.upper()}...'})}\n\n"
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(api_url, headers=headers, json=payload, timeout=aiohttp.ClientTimeout(total=120)) as response:
+                    if response.status != 200:
+                        error_text = await response.text()
+                        print(f"❌ HTTP Error: {response.status} - {error_text}")
+                        yield f"data: {json.dumps({'type': 'error', 'content': f'Failed to get AI feedback from {provider}: {response.status}'})}\n\n"
+                        return
+                    
+                    # Send connected status
+                    yield f"data: {json.dumps({'type': 'status', 'content': f'Connected to {provider.value.upper()}. Generating response...'})}\n\n"
+                    
+                    buffer = ""
+                    async for line in response.content:
+                        line_str = line.decode('utf-8').strip()
+                        if line_str.startswith('data: '):
+                            data_content = line_str[6:]
+                            if data_content == '[DONE]':
+                                yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+                                break
+                            try:
+                                json_data = json.loads(data_content)
+                                if 'choices' in json_data and len(json_data['choices']) > 0:
+                                    delta = json_data['choices'][0].get('delta', {})
+                                    if 'content' in delta:
+                                        content = delta['content']
+                                        buffer += content
+                                        
+                                        # Send content in chunks for better UX
+                                        if len(buffer) >= 10 or '\n' in buffer:  # Send every 10 chars or on newline
+                                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                            buffer = ""
+                                            await asyncio.sleep(pacing_delay)  # Control pacing
+                                        
+                            except json.JSONDecodeError:
+                                continue
+                    
+                    # Send any remaining buffer
+                    if buffer:
+                        yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                        
+        except asyncio.TimeoutError:
+            print(f"❌ Timeout with {provider}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Request timed out for {provider}'})}\n\n"
         except Exception as e:
-            print(f"Failed to fetch {url}: {e}")
-            return "", False, ""
+            print(f"❌ Error with {provider} streaming: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error with {provider}: {str(e)}'})}\n\n"
 
-    def check_ref_validity(self, file_path):
-        full_text = extract_text_from_file(file_path)
-        intext_cits = self.extract_intext_citations(full_text)
-        references = self.extract_references(full_text)
-
-        data = []
-        for ref in references:
-            if "http" in ref or "www." in ref:
-                url_match = re.search(r'(https?://\S+)', ref)
-                if url_match:
-                    url = url_match.group(1)
-                    plain_text, is_valid, rand_text = self.fetch_reference_text_from_url(url, file_path)
-                    print(f"URL Checked: {url}, Valid: {is_valid}")
-                    data.append((None, ref, "Yes" if is_valid else "No", rand_text))
-            else:
-                data.append((None, ref, "N/A", ""))
-
-        for i, cit in enumerate(intext_cits):
-            if i < len(data):
-                data[i] = (cit, *data[i][1:])
-            else:
-                data.append((cit, "", "N/A", ""))
-
-        # Filter out rows with N/A in the "Valid" column (index 2)
-        filtered_data = [row for row in data if row[2] != "N/A"]
-
-        # Create markdown table
-        headers = ["InTextCitation", "Reference", "Valid", "RandomSentence"]
-        md_table = "| " + " | ".join(headers) + " |\n"
-        md_table += "|" + "|".join(["---"] * len(headers)) + "|\n"
-        
-        for row in filtered_data:
-            # Escape any existing pipe characters in the data
-            escaped_row = [str(item).replace("|", "\\|") if item is not None else "" for item in row]
-            md_table += "| " + " | ".join(escaped_row) + " |\n"
-        
-        return md_table
-
-    async def grade_objective(self, file_path: str, model_id: str = "") -> str:
-        """Analyze thesis content and return AI feedback using OpenRouter"""
-        if not model_id:
-            model_id = self.api_default_model
-        print('analyze_thesis, model_id:', model_id)
-
-        # Extract the plain text from the thesis file based on its format
+    async def analyze_thesis(self, file_path: str, custom_instructions: str, 
+                           predefined_questions: List[str], provider: AIProvider = None, 
+                           model: Optional[str] = None) -> str:
+        """Analyze thesis content using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
         try:
             thesis_content = extract_text_from_file(file_path)
         except Exception as e:
             print(f"Error reading thesis file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
         
-        # Prepare the prompt
-        # prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
-        # for question in predefined_questions:
-        #     prompt += f"- {question}\n"
+        prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
+        for question in predefined_questions:
+            prompt += f"- {question}\n"
+        
+        messages = [{"role": "user", "content": prompt}]
+        
+        if custom_instructions:
+            messages.insert(0, {"role": "system", "content": custom_instructions})
+        
+        try:
+            response_json = await self.make_request(provider, messages, model)
+            message = response_json["choices"][0]["message"]["content"]
+            return message
+        except Exception as e:
+            print(f"❌ Error in analyze_thesis with {provider}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
 
-        # Test: hard coded custom_instructions
-        custom_instructions = f"""
-            Analyze the conetent, then grade the Purpose and objectives from 1-5 based on these criteria:
+    async def analyze_thesis_stream(self, file_path: str, custom_instructions: str, 
+                                  predefined_questions: List[str], provider: AIProvider = None, 
+                                  model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream thesis analysis using the specified AI provider with enhanced UX"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
+        for question in predefined_questions:
+            prompt += f"- {question}\n"
+        
+        messages = [{"role": "user", "content": prompt}]
+        
+        if custom_instructions:
+            messages.insert(0, {"role": "system", "content": custom_instructions})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_objective(self, file_path: str, provider: AIProvider = None, 
+                            model: Optional[str] = None) -> str:
+        """Grade thesis objectives using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
+        
+        custom_instructions = """
+            Analyze the content, then grade the Purpose and objectives from 1-5 based on these criteria:
             - Excellent (5): The purpose and objectives of the thesis are well-founded from the perspectives of working life and theoretical foundation. The intention is to apply the results of the work to the development of the professional field. 
-            - Good (4–3): The purpose and objectives of the thesis aim at developing the  professional field.
+            - Good (4–3): The purpose and objectives of the thesis aim at developing the professional field.
             - Satisfactory (2–1): The thesis has objectives.
             - Fail (0) / Unfinished: The purpose and objectives of the thesis are vaguely defined and/or the work does not follow the approved plan. 
         """
-        prompt = f"Analyze the following thesis content: {thesis_content}"
         
-        # Construct the headers and request data
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "Thesis-Analysis"
-        }
+        prompt = f"Analyze the following thesis content: {thesis_content}"
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": custom_instructions})
+        
+        try:
+            response_json = await self.make_request(provider, messages, model)
+            message = response_json["choices"][0]["message"]["content"]
+            return message
+        except Exception as e:
+            print(f"❌ Error in grade_objective with {provider}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
+
+    async def grade_objective_stream(self, file_path: str, provider: AIProvider = None, 
+                                   model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream objective grading using the specified AI provider with enhanced UX"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed grading for PURPOSES AND OBJECTIVES.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the thesis based on the following criteria:
+        1. Clarity and specificity of research objectives
+        2. Alignment between objectives and methodology
+        3. Feasibility and scope of the research
+        4. Contribution to the field
+        5. Practical relevance
+        
+        Provide a comprehensive analysis with specific examples from the thesis.
+        """
         
         messages = [{"role": "user", "content": prompt}]
         
-        # Add custom instructions if provided
-        if custom_instructions:
-            messages.insert(0, {"role": "system", "content": custom_instructions})
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
 
-        data = {
-            "model": model_id,  # Set your model here
-            "messages": messages,
-            "stream": False,  # Set to False for non-streaming, True if you want to stream the response
-            "seed": self.seed,
-            "max_tokens": self.max_tokens,
-        }
-
-        try:
-            # Send the request to OpenRouter
-            response = requests.post(self.api_url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()  # Raise error for bad status codes
+    async def grade_theoretical_foundation(self, file_path: str, provider: AIProvider = None, 
+                                        model: Optional[str] = None) -> str:
+        """Grade theoretical foundation using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
             
-            response_json = response.json()
-            print("Send the request to OpenRouter, response response_json:", response_json);
-            message = response_json["choices"][0]["message"]["content"]
-            print("Send the request to OpenRouter, response message:", message);
-            
-            # Return the AI feedback content
-            return message
-
-        except requests.exceptions.HTTPError as errh:
-            print(f"❌ HTTP Error: {errh} - Status code: {response.status_code}")
-            try:
-                print("Details:", response.json())
-            except:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to get AI feedback from OpenRouter")
-
-        except requests.exceptions.ConnectionError as errc:
-            print("❌ Connection Error:", errc)
-            raise HTTPException(status_code=500, detail="Connection error with OpenRouter")
-
-        except requests.exceptions.Timeout as errt:
-            print("❌ Timeout Error:", errt)
-            raise HTTPException(status_code=500, detail="Request to OpenRouter timed out")
-
-        except requests.exceptions.RequestException as err:
-            print("❌ Unknown Request Error:", err)
-            raise HTTPException(status_code=500, detail="An error occurred while requesting OpenRouter")
-
-        except KeyError as e:
-            print("❌ Unexpected response format. Could not extract message:", e)
-            raise HTTPException(status_code=500, detail="Unexpected response from OpenRouter")
-
-        except json.JSONDecodeError:
-            print("❌ Failed to parse JSON response")
-            raise HTTPException(status_code=500, detail="Failed to parse OpenRouter response")
-
-    async def grade_theoretical_foundation(self, file_path: str, model_id: str = "") -> str:
-        """Analyze thesis content and return AI feedback using OpenRouter"""
-        if not model_id:
-            model_id = self.api_default_model
-        print('analyze_thesis, model_id:', model_id)
-
-        # Extract the plain text from the thesis file based on its format
         try:
             thesis_content = extract_text_from_file(file_path)
         except Exception as e:
             print(f"Error reading thesis file: {str(e)}")
             raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
         
-        # Prepare the prompt
-        # prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
-        # for question in predefined_questions:
-        #     prompt += f"- {question}\n"
-
-        # Test: hard coded custom_instructions
-        custom_instructions = f"""
+        custom_instructions = """
             Analyze the content (called thesis), then grade the Theoretical foundation from 1-5 based on these criteria:
-            - Excellent (5): The theoretical foundation conveys the author’s own, critical and creative  thinking. It is carefully considered, topical and purposeful in terms of the nature of the work. A sufficient amount of key scientific/artistic research and specialist knowledge has been used for the theoretical foundation. 
+            - Excellent (5): The theoretical foundation conveys the author's own, critical and creative thinking. It is carefully considered, topical and purposeful in terms of the nature of the work. A sufficient amount of key scientific/artistic research and specialist knowledge has been used for the theoretical foundation. 
             - Good (4–3): The thesis has a theoretical foundation and is based on versatile industry sources.
             - Satisfactory (2–1): The thesis has a theoretical foundation and is based on industry sources.
-            - Fail (0) / Unfinished: The theoretical foundation is noticeably limited and  selected uncritically.
+            - Fail (0) / Unfinished: The theoretical foundation is noticeably limited and selected uncritically.
         """
+        
         prompt = f"Analyze the following thesis content: {thesis_content}"
-        
-        # Construct the headers and request data
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "Thesis-Analysis"
-        }
-        
         messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": custom_instructions})
         
-        # Add custom instructions if provided
-        if custom_instructions:
-            messages.insert(0, {"role": "system", "content": custom_instructions})
-
-        data = {
-            "model": model_id,  # Set your model here
-            "messages": messages,
-            "stream": False,  # Set to False for non-streaming, True if you want to stream the response
-            "seed": self.seed,
-            "max_tokens": self.max_tokens,
-        }
-
         try:
-            # Send the request to OpenRouter
-            response = requests.post(self.api_url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()  # Raise error for bad status codes
-            
-            response_json = response.json()
-            print("Send the request to OpenRouter, response response_json:", response_json);
+            response_json = await self.make_request(provider, messages, model)
             message = response_json["choices"][0]["message"]["content"]
-            print("Send the request to OpenRouter, response message:", message);
-            
-            # Return the AI feedback content
             return message
+        except Exception as e:
+            print(f"❌ Error in grade_theoretical_foundation with {provider}: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
 
-        except requests.exceptions.HTTPError as errh:
-            print(f"❌ HTTP Error: {errh} - Status code: {response.status_code}")
-            try:
-                print("Details:", response.json())
-            except:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to get AI feedback from OpenRouter")
-
-        except requests.exceptions.ConnectionError as errc:
-            print("❌ Connection Error:", errc)
-            raise HTTPException(status_code=500, detail="Connection error with OpenRouter")
-
-        except requests.exceptions.Timeout as errt:
-            print("❌ Timeout Error:", errt)
-            raise HTTPException(status_code=500, detail="Request to OpenRouter timed out")
-
-        except requests.exceptions.RequestException as err:
-            print("❌ Unknown Request Error:", err)
-            raise HTTPException(status_code=500, detail="An error occurred while requesting OpenRouter")
-
-        except KeyError as e:
-            print("❌ Unexpected response format. Could not extract message:", e)
-            raise HTTPException(status_code=500, detail="Unexpected response from OpenRouter")
-
-        except json.JSONDecodeError:
-            print("❌ Failed to parse JSON response")
-            raise HTTPException(status_code=500, detail="Failed to parse OpenRouter response")
-
-    async def analyze_thesis(self, file_path: str, custom_instructions: str, predefined_questions: List[str], model_id: str = "") -> str:
-        """Analyze thesis content and return AI feedback using OpenRouter"""
-        if not model_id:
-            model_id = self.api_default_model
-        print('analyze_thesis, model_id:', model_id)
-
-        # Extract the plain text from the thesis file based on its format
+    async def grade_theoretical_foundation_stream(self, file_path: str, provider: AIProvider = None, 
+                                               model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream theoretical foundation grading using the specified AI provider with enhanced UX"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
         try:
             thesis_content = extract_text_from_file(file_path)
         except Exception as e:
             print(f"Error reading thesis file: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
         
-        # Prepare the prompt
-        # prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
-        # for question in predefined_questions:
-        #     prompt += f"- {question}\n"
-
-        # Test: hard coded custom_instructions
-        custom_instructions = f"""
-            You are designed to check the user's uploaded file (called 'thesis').
-            You give short answers and explanations for the questions below (no introductory sentence and no follow-up suggestion), make sure to indicate all the issues specifically, don't ignore any issue:
-            - Detect the reference style used in thesis, tell its name, and if it is not Harvard style, suggest the Havard style are being used in the school. Specifically indicate where the problem(s) are (page number or chapter)
-            - List all incorrect reference styles, each item in the format "**Identifier**: explanation"
-            - List all incorrect reference orders, each item in the format "**Identifier**: explanation"
-            - List all empty chapters, each item in the format "**Chapter Identifier**: explanation". A chapter is considered empty if: It is formatted as a level 2 heading (e.g., 2.2) or level 3 heading (e.g., 2.3.5), and It does not have any body text beneath it. Use the heading structure to determine whether body text is associated with a chapter. A section of body text is typically assumed to belong to the most recent heading above it.
-            - List all theoretical information without references, each item in the format "**Identifier**: explanation"
-            - List all figures and tables without any reference in text, each item in the format "**Figure/Table identifier**: explanation"
-            - Is there a thesis goal defined anywhere in text? Answer in the format "**Yes or No**: explanation"
+        prompt = f"""
+        Analyze the following thesis content and provide detailed grading for THEORETICAL FOUNDATION.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the thesis based on the following criteria:
+        1. Depth and breadth of theoretical framework
+        2. Appropriate use of relevant theories and concepts
+        3. Integration of theoretical and practical elements
+        4. Critical analysis of existing literature
+        5. Theoretical contribution to the field
+        
+        Provide a comprehensive analysis with specific examples from the thesis.
         """
-        prompt = f"Analyze the following thesis content: {thesis_content}"
-        
-        # Construct the headers and request data
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-            "HTTP-Referer": "http://localhost",
-            "X-Title": "Thesis-Analysis"
-        }
         
         messages = [{"role": "user", "content": prompt}]
         
-        # Add custom instructions if provided
-        if custom_instructions:
-            messages.insert(0, {"role": "system", "content": custom_instructions})
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
 
-        data = {
-            "model": model_id,  # Set your model here
-            "messages": messages,
-            "stream": False,  # Set to False for non-streaming, True if you want to stream the response
-            "seed": self.seed,
-            "max_tokens": self.max_tokens,
-        }
-
-        try:
-            # Send the request to OpenRouter
-            response = requests.post(self.api_url, headers=headers, json=data, timeout=60)
-            response.raise_for_status()  # Raise error for bad status codes
-            
-            response_json = response.json()
-            print("Send the request to OpenRouter, response response_json:", response_json);
-            message = response_json["choices"][0]["message"]["content"]
-            print("Send the request to OpenRouter, response message:", message);
-            
-            # Return the AI feedback content
-            return message
-
-        except requests.exceptions.HTTPError as errh:
-            print(f"❌ HTTP Error: {errh} - Status code: {response.status_code}")
-            try:
-                print("Details:", response.json())
-            except:
-                pass
-            raise HTTPException(status_code=500, detail="Failed to get AI feedback from OpenRouter")
-
-        except requests.exceptions.ConnectionError as errc:
-            print("❌ Connection Error:", errc)
-            raise HTTPException(status_code=500, detail="Connection error with OpenRouter")
-
-        except requests.exceptions.Timeout as errt:
-            print("❌ Timeout Error:", errt)
-            raise HTTPException(status_code=500, detail="Request to OpenRouter timed out")
-
-        except requests.exceptions.RequestException as err:
-            print("❌ Unknown Request Error:", err)
-            raise HTTPException(status_code=500, detail="An error occurred while requesting OpenRouter")
-
-        except KeyError as e:
-            print("❌ Unexpected response format. Could not extract message:", e)
-            raise HTTPException(status_code=500, detail="Unexpected response from OpenRouter")
-
-        except json.JSONDecodeError:
-            print("❌ Failed to parse JSON response")
-            raise HTTPException(status_code=500, detail="Failed to parse OpenRouter response")
-
-# Streaming text generator
-async def fake_ai_feedback_stream(thesis_id: str, instructions: str, questions: List[str]) -> AsyncGenerator[str, None]:
-    texts = [
-        f"Reviewing thesis `{thesis_id}`...",
-        "Analyzing content...",
-        "Strengths: Well-structured arguments, clear methodology.",
-        "Areas for improvement: Need more citations in literature review.",
-        "Answering predefined questions...",
-        *[f"Q: {q} — A: (Simulated response here)" for q in questions],
-        "Done! ✅"
-    ]
-    for text in texts:
-        yield f"data: {text}\n\n"
-        print(f"data: {text}\n\n")  # print to server console
-        await asyncio.sleep(1)
+# Initialize the unified AI model
+ai_model = UnifiedAIModel()
 
 # Routes
 @app.post("/token")
@@ -785,22 +644,12 @@ async def register(
     password: str = Form(...),
     role: str = Form(...),
     supervisor_id: Optional[str] = Form(None),
-    # current_user: User = Depends(get_current_active_user)  # temp off
 ):
-    # Temporarily off for testing
-    # check_admin(current_user)
-    
     if username in fake_users_db:
         raise HTTPException(status_code=400, detail="Username already registered")
     
     if role not in ["student", "supervisor", "admin"]:
         raise HTTPException(status_code=400, detail="Invalid role")
-    
-    # if role == "student" and not supervisor_id:
-    #     raise HTTPException(status_code=400, detail="Students must have a supervisor")
-    
-    # if role == "student" and supervisor_id not in fake_users_db:
-    #     raise HTTPException(status_code=404, detail="Supervisor not found")
     
     hashed_password = get_password_hash(password)
     user = User(
@@ -814,7 +663,6 @@ async def register(
     
     fake_users_db[username] = user
     
-    # If this is a student, add to supervisor's assigned_students
     if role == "student" and supervisor_id:
         supervisor = fake_users_db.get(supervisor_id)
         if supervisor:
@@ -829,10 +677,12 @@ async def upload_thesis(
 ):
     check_student(current_user)
     
-    # Save the file
+    print(f"📤 Uploading thesis for user: {current_user.username} (ID: {current_user.id})")
+    print(f"📄 File name: {file.filename}")
+    
     file_ext = os.path.splitext(file.filename)[1]
     unique_filename = f"{current_user.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_ext}"
-    file_path = os.path.join(UPLOAD_DIR, unique_filename)
+    file_path = os.path.join(config.UPLOAD_DIR, unique_filename)
     
     try:
         async with aiofiles.open(file_path, 'wb') as f:
@@ -841,92 +691,199 @@ async def upload_thesis(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error saving file: {str(e)}")
     
-    # Create thesis record
     thesis = Thesis(
         student_id=current_user.id,
         filename=file.filename,
         filepath=file_path,
     )
+    
+    print(f"📝 Created thesis with ID: {thesis.id}")
     fake_theses_db[thesis.id] = thesis
     
     return {"message": "Thesis uploaded successfully", "thesis_id": thesis.id}
 
-# Optional route for testing HTML directly
 @app.get("/", response_class=HTMLResponse)
 async def root():
-    with open("./_baocao/index.html", encoding='utf8') as f:
-        return HTMLResponse(content=f.read())
+    try:
+        with open("./_baocao/index.html", encoding='utf8') as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        html_content = """
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>ThesisAI API</title>
+            <meta charset="utf-8">
+        </head>
+        <body>
+            <h1>ThesisAI API</h1>
+            <p>The API is running successfully!</p>
+            <p>Check the <a href="/docs">API documentation</a> for available endpoints.</p>
+        </body>
+        </html>
+        """
+        return HTMLResponse(content=html_content)
+
+async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefined_questions: List[str], 
+                           provider: AIProvider = None, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+    """Stream AI feedback for a thesis using the specified provider with enhanced UX"""
+    thesis = fake_theses_db.get(thesis_id)
+    if not thesis:
+        print(f"❌ Thesis not found: {thesis_id}")
+        yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis not found'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+        return
+    
+    print(f"✅ Starting AI feedback for thesis: {thesis_id}")
+    print(f"📄 File path: {thesis.filepath}")
+    print(f"🤖 Provider: {provider or 'active'}")
+    print(f"🤖 Model: {model or 'default'}")
+    
+    try:
+        if not os.path.exists(thesis.filepath):
+            print(f"❌ Thesis file not found: {thesis.filepath}")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis file not found'})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            return
+        
+        # Send initial progress
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Starting thesis analysis...', 'step': 1, 'total': 3})}\n\n"
+        
+        # Step 1: Thesis Analysis
+        print("🔄 Starting thesis analysis...")
+        async for chunk in ai_model.analyze_thesis_stream(thesis.filepath, custom_instructions, predefined_questions, provider, model):
+            # Parse the chunk to extract structured data
+            if chunk.startswith('data: '):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data.get('type') == 'content':
+                        yield chunk
+                    elif data.get('type') == 'error':
+                        yield chunk
+                        return
+                    elif data.get('type') == 'complete':
+                        break
+                except json.JSONDecodeError:
+                    # Handle legacy format
+                    yield chunk
+            else:
+                yield chunk
+            
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Thesis analysis completed. Starting objective grading...', 'step': 2, 'total': 3})}\n\n"
+        yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING PURPOSES AND OBJECTIVES'})}\n\n"
+        
+        # Step 2: Objective Grading
+        print("🔄 Starting objective grading...")
+        async for chunk in ai_model.grade_objective_stream(thesis.filepath, provider, model):
+            if chunk.startswith('data: '):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data.get('type') == 'content':
+                        yield chunk
+                    elif data.get('type') == 'error':
+                        yield chunk
+                        return
+                    elif data.get('type') == 'complete':
+                        break
+                except json.JSONDecodeError:
+                    yield chunk
+            else:
+                yield chunk
+                
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Objective grading completed. Starting theoretical foundation grading...', 'step': 3, 'total': 3})}\n\n"
+        yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING THEORETICAL FOUNDATION'})}\n\n"
+        
+        # Step 3: Theoretical Foundation Grading
+        print("🔄 Starting theoretical foundation grading...")
+        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis.filepath, provider, model):
+            if chunk.startswith('data: '):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data.get('type') == 'content':
+                        yield chunk
+                    elif data.get('type') == 'error':
+                        yield chunk
+                        return
+                    elif data.get('type') == 'complete':
+                        break
+                except json.JSONDecodeError:
+                    yield chunk
+            else:
+                yield chunk
+            
+        print("✅ AI feedback streaming completed successfully")
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': 3, 'total': 3})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            
+    except Exception as e:
+        print("❌ Full traceback:\n", traceback.format_exc())
+        print(f"❌ Error in stream_ai_feedback: {str(e)}")
+        yield f"data: {json.dumps({'type': 'error', 'content': f'AI service error: {str(e)}'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
 @app.post("/request-ai-feedback")
 async def request_ai_feedback(
     thesis_id: str,
     custom_instructions: str = Form("Please review this thesis and provide feedback"),
     predefined_questions: List[str] = Form(["What are the strengths?", "What areas need improvement?"]),
-    model_id: str = "",
+    provider: AIProvider = Form(None),
+    model: Optional[str] = Form(None),
     current_user: User = Depends(get_current_active_user)
 ):
-    # TESTING... no err but get all text at once, no difference
-    # return StreamingResponse(
-    #     fake_ai_feedback_stream(thesis_id, custom_instructions, predefined_questions),
-    #     media_type="text/event-stream"
-    # )
-
-    # Check if thesis exists and belongs to the student
+    print(f"🔍 Looking for thesis_id: {thesis_id}")
+    print(f"🔍 Current user: {current_user.username} (ID: {current_user.id})")
+    print(f"🔍 Provider: {provider or 'active'}")
+    print(f"🔍 Model: {model}")
+    
     thesis = fake_theses_db.get(thesis_id)
-    print("request-ai-feedback, thesis:", thesis);
+    if not thesis:
+        print(f"❌ Thesis not found in database. Available theses: {list(fake_theses_db.keys())}")
+        raise HTTPException(status_code=404, detail="Thesis not found")
+    
+    if thesis.student_id != current_user.id:
+        print(f"❌ Thesis belongs to student {thesis.student_id}, but current user is {current_user.id}")
+        raise HTTPException(status_code=403, detail="Not your thesis")
+    
+    return StreamingResponse(
+        stream_ai_feedback(thesis_id, custom_instructions, predefined_questions, provider, model),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control"
+        }
+    )
+
+@app.post("/save-ai-feedback")
+async def save_ai_feedback(
+    thesis_id: str,
+    feedback_content: str = Form(...),
+    current_user: User = Depends(get_current_active_user)
+):
+    thesis = fake_theses_db.get(thesis_id)
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
     if thesis.student_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
-    # Get AI feedback using the AIModel class
-    ai_model = AIModel()
-    ai_feedback = ''
-    try:
-        # Get AI Feedback with default model
-        # ai_feedback = await ai_model.analyze_thesis(
-        #     thesis.filepath, 
-        #     custom_instructions, 
-        #     predefined_questions,
-        #     model_id
-        # )
-
-        # md_table = ai_model.check_ref_validity(thesis.filepath)
-        # ai_feedback += '\n' + md_table
-        ai_feedback += 'GRADING PURPOSES AND OBJECTIVES...'
-        obj_grade = await ai_model.grade_objective(thesis.filepath)
-        ai_feedback += obj_grade
-        ai_feedback += '' * 80
-
-        ai_feedback += 'GRADING THEORETICAL FOUNDATION...'
-        theory_grade = await ai_model.grade_objective(thesis.filepath)
-        ai_feedback += theory_grade
-        ai_feedback += '' * 80
-
-    except Exception as e:
-        print("Full traceback:\n", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=f"AI service error: {str(e)}")
-    
-    # Save feedback
     feedback = Feedback(
         thesis_id=thesis_id,
         reviewer_id="ai_system",
-        content=ai_feedback,
+        content=feedback_content,
         is_ai_feedback=True
     )
     fake_feedback_db[feedback.id] = feedback
     
-    # Update thesis
     thesis.ai_feedback_id = feedback.id
     thesis.status = "reviewed_by_ai"
     
-    # Save AI response to file with UTF-8 encoding
-    ai_response_path = os.path.join(AI_RESPONSES_DIR, f"{thesis_id}_ai_response.txt")
-    async with aiofiles.open(ai_response_path, 'w', encoding='utf-8') as f:  # Explicitly set encoding to UTF-8
-        await f.write(ai_feedback)
+    ai_response_path = os.path.join(config.AI_RESPONSES_DIR, f"{thesis_id}_ai_response.txt")
+    async with aiofiles.open(ai_response_path, 'w', encoding='utf-8') as f:
+        await f.write(feedback_content)
 
-    return {"message": ai_feedback, "feedback_id": feedback.id}
+    return {"message": "Feedback saved successfully", "feedback_id": feedback.id}
 
 @app.post("/submit-supervisor-feedback")
 async def submit_supervisor_feedback(
@@ -943,7 +900,6 @@ async def submit_supervisor_feedback(
     if thesis.student_id not in current_user.assigned_students:
         raise HTTPException(status_code=403, detail="Not your assigned student")
     
-    # Create feedback
     feedback = Feedback(
         thesis_id=thesis_id,
         reviewer_id=current_user.id,
@@ -952,12 +908,10 @@ async def submit_supervisor_feedback(
     )
     fake_feedback_db[feedback.id] = feedback
     
-    # Update thesis
     thesis.supervisor_feedback_id = feedback.id
     thesis.status = "reviewed_by_supervisor"
     
-    # Save feedback to file
-    feedback_path = os.path.join(FEEDBACK_DIR, f"{thesis_id}_supervisor_feedback.txt")
+    feedback_path = os.path.join(config.FEEDBACK_DIR, f"{thesis_id}_supervisor_feedback.txt")
     async with aiofiles.open(feedback_path, 'w') as f:
         await f.write(feedback_content)
     
@@ -972,7 +926,6 @@ async def get_supervisor_feedback(
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    # Check permissions
     if current_user.role == "student" and thesis.student_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
@@ -1001,32 +954,38 @@ async def assign_supervisor(
         raise HTTPException(status_code=404, detail="Student not found")
     
     supervisor = fake_users_db.get(supervisor_username)
-    print("Before assign, supervisor:", supervisor);
     if not supervisor or supervisor.role != "supervisor":
         raise HTTPException(status_code=404, detail="Supervisor not found")
     
-    # Remove from previous supervisor if any
     if student.supervisor_id:
         prev_supervisor = fake_users_db.get(student.supervisor_id)
         if prev_supervisor and student_username in prev_supervisor.assigned_students:
             prev_supervisor.assigned_students.remove(student_username)
     
-    # Assign to new supervisor
     student.supervisor_id = supervisor_username
     if student_username not in supervisor.assigned_students:
         supervisor.assigned_students.append(student_username)
-    print("After assign, supervisor:", supervisor);
+    
     return {"message": f"Supervisor {supervisor_username} assigned to student {student_username}"}
 
 @app.get("/my-theses")
 async def get_my_theses(current_user: User = Depends(get_current_active_user)):
+    print(f"🔍 Getting theses for user: {current_user.username} (ID: {current_user.id})")
+    print(f"🔍 User role: {current_user.role}")
+    
     if current_user.role == "student":
         theses = [t for t in fake_theses_db.values() if t.student_id == current_user.id]
+        print(f"🔍 Found {len(theses)} theses for student")
     elif current_user.role == "supervisor":
         student_ids = current_user.assigned_students
+        print(f"🔍 Supervisor assigned students: {student_ids}")
         theses = [t for t in fake_theses_db.values() if t.student_id in student_ids]
+        print(f"🔍 Found {len(theses)} theses for supervisor")
     else:  # admin
         theses = list(fake_theses_db.values())
+        print(f"🔍 Found {len(theses)} theses for admin")
+    
+    print(f"🔍 Returning theses: {[{'id': t.id, 'filename': t.filename, 'student_id': t.student_id} for t in theses]}")
     
     return theses
 
@@ -1039,7 +998,6 @@ async def download_thesis(
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    # Check permissions
     if current_user.role == "student" and thesis.student_id != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
@@ -1058,17 +1016,11 @@ async def download_thesis(
 @app.get("/theses-to-review")
 async def get_theses_to_review(current_user: User = Depends(get_current_active_user)):
     check_supervisor(current_user)
-    print("current_user:", current_user);
     theses_to_review = []
     
-    # Iterate through all theses
     for thesis in fake_theses_db.values():
-        # Print thesis info to check its status and student_id
-        print(f"Thesis: {thesis.id}, Status: {thesis.status}, Student ID: {thesis.student_id}")
-
         if thesis.status in ["reviewed_by_ai", "pending"] and thesis.student_id in current_user.assigned_students:
             student = next((user for user in fake_users_db.values() if user.id == thesis.student_id), None)
-            print(f"Checking student for thesis {thesis.id}: student_id={thesis.student_id}, found={student is not None}")
             if student:
                 thesis_data = {
                     "student_name": student.full_name,
@@ -1078,9 +1030,6 @@ async def get_theses_to_review(current_user: User = Depends(get_current_active_u
                 }
                 theses_to_review.append(thesis_data)
 
-    # Log the final output for verification
-    print(f"Theses to Review: {theses_to_review}")
-
     return theses_to_review
 
 @app.get("/users")
@@ -1088,7 +1037,6 @@ async def get_users(current_user: User = Depends(get_current_active_user)):
     check_admin(current_user)
     return list(fake_users_db.values())
 
-# Additional utility endpoints
 @app.get("/me")
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
     return current_user
@@ -1125,20 +1073,336 @@ async def get_supervisor_assignments(current_user: User = Depends(get_current_ac
 
 @app.get("/all-theses")
 async def get_all_theses(current_user: User = Depends(get_current_active_user)):
-    check_admin(current_user)  # Ensure only admins can access this data
+    check_admin(current_user)
     
-    # Add student_name to each thesis by looking it up in the users database
     theses_with_student_names = []
     for thesis in fake_theses_db.values():
-        # Find the student by student_id in fake_users_db
         student = next((user for user in fake_users_db.values() if user.id == thesis.student_id and user.role == "student"), None)
         if student:
-            thesis_dict = thesis.dict()  # Convert thesis to a dictionary to modify it
-            thesis_dict["student_name"] = student.full_name  # Add student_name field
+            thesis_dict = thesis.dict()
+            thesis_dict["student_name"] = student.full_name
             theses_with_student_names.append(thesis_dict)
     
     return theses_with_student_names
 
+@app.get("/ai-providers")
+async def get_ai_providers():
+    """Get available AI providers and their configuration"""
+    return config.get_available_providers()
+
+@app.get("/config/status")
+async def get_config_status():
+    """Get configuration status including JWT and AI provider status"""
+    jwt_valid = config.validate_jwt_config()
+    ai_status = config.validate_ai_config()
+    
+    return {
+        "jwt": {
+            "valid": jwt_valid,
+            "algorithm": config.ALGORITHM,
+            "expire_minutes": config.ACCESS_TOKEN_EXPIRE_MINUTES
+        },
+        "ai_providers": ai_status,
+        "active_provider": config.get_active_provider(),
+        "server": {
+            "host": config.HOST,
+            "port": config.PORT,
+            "debug": config.DEBUG
+        },
+        "directories": {
+            "upload_dir": config.UPLOAD_DIR,
+            "feedback_dir": config.FEEDBACK_DIR,
+            "ai_responses_dir": config.AI_RESPONSES_DIR
+        }
+    }
+
+@app.get("/streaming-config")
+async def get_streaming_config():
+    """Get streaming configuration for client-side optimization"""
+    return {
+        "pacing_delay": 0.01,  # seconds between chunks
+        "buffer_size": 10,      # characters per chunk
+        "timeout": 120,         # seconds
+        "retry_attempts": 3,
+        "supported_types": [
+            "content",      # Regular content chunks
+            "status",       # Status updates
+            "progress",     # Progress indicators
+            "section",      # Section headers
+            "error",        # Error messages
+            "complete"      # Stream completion
+        ]
+    }
+
+@app.post("/request-ai-feedback-enhanced")
+async def request_ai_feedback_enhanced(
+    thesis_id: str,
+    custom_instructions: str = Form("Please review this thesis and provide feedback"),
+    predefined_questions: List[str] = Form(["What are the strengths?", "What areas need improvement?"]),
+    provider: AIProvider = Form(None),
+    model: Optional[str] = Form(None),
+    pacing_delay: float = Form(0.01),
+    current_user: User = Depends(get_current_active_user)
+):
+    """Enhanced AI feedback endpoint with configurable pacing and better error handling"""
+    print(f"🔍 Enhanced AI feedback request for thesis_id: {thesis_id}")
+    print(f"🔍 Current user: {current_user.username} (ID: {current_user.id})")
+    print(f"🔍 Provider: {provider or 'active'}")
+    print(f"🔍 Model: {model}")
+    print(f"🔍 Pacing delay: {pacing_delay}")
+    
+    thesis = fake_theses_db.get(thesis_id)
+    if not thesis:
+        print(f"❌ Thesis not found in database. Available theses: {list(fake_theses_db.keys())}")
+        raise HTTPException(status_code=404, detail="Thesis not found")
+    
+    if thesis.student_id != current_user.id:
+        print(f"❌ Thesis belongs to student {thesis.student_id}, but current user is {current_user.id}")
+        raise HTTPException(status_code=403, detail="Not your thesis")
+    
+    return StreamingResponse(
+        stream_ai_feedback_enhanced(thesis_id, custom_instructions, predefined_questions, provider, model, pacing_delay),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control",
+            "X-Streaming-Version": "2.0"
+        }
+    )
+
+async def stream_ai_feedback_enhanced(thesis_id: str, custom_instructions: str, predefined_questions: List[str], 
+                                     provider: AIProvider = None, model: Optional[str] = None, 
+                                     pacing_delay: float = 0.01) -> AsyncGenerator[str, None]:
+    """Enhanced streaming function with better pacing and error recovery"""
+    thesis = fake_theses_db.get(thesis_id)
+    if not thesis:
+        yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis not found'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+        return
+    
+    try:
+        if not os.path.exists(thesis.filepath):
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis file not found'})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            return
+        
+        # Send initial status with metadata
+        yield f"data: {json.dumps({
+            'type': 'status', 
+            'content': 'Starting analysis...',
+            'metadata': {
+                'thesis_id': thesis_id,
+                'provider': provider.value if provider else 'active',
+                'model': model or 'default',
+                'pacing_delay': pacing_delay
+            }
+        })}\n\n"
+        
+        # Step 1: Thesis Analysis
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Analyzing thesis content...', 'step': 1, 'total': 3})}\n\n"
+        
+        async for chunk in ai_model.analyze_thesis_stream(thesis.filepath, custom_instructions, predefined_questions, provider, model):
+            if chunk.startswith('data: '):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data.get('type') == 'content':
+                        yield chunk
+                        await asyncio.sleep(pacing_delay)  # Apply pacing
+                    elif data.get('type') == 'error':
+                        yield chunk
+                        return
+                    elif data.get('type') == 'complete':
+                        break
+                except json.JSONDecodeError:
+                    yield chunk
+            else:
+                yield chunk
+                await asyncio.sleep(pacing_delay)  # Apply pacing to legacy format
+        
+        # Step 2: Objective Grading
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Grading objectives...', 'step': 2, 'total': 3})}\n\n"
+        yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING PURPOSES AND OBJECTIVES'})}\n\n"
+        
+        async for chunk in ai_model.grade_objective_stream(thesis.filepath, provider, model):
+            if chunk.startswith('data: '):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data.get('type') == 'content':
+                        yield chunk
+                        await asyncio.sleep(pacing_delay)
+                    elif data.get('type') == 'error':
+                        yield chunk
+                        return
+                    elif data.get('type') == 'complete':
+                        break
+                except json.JSONDecodeError:
+                    yield chunk
+                    await asyncio.sleep(pacing_delay)
+            else:
+                yield chunk
+                await asyncio.sleep(pacing_delay)
+        
+        # Step 3: Theoretical Foundation Grading
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Grading theoretical foundation...', 'step': 3, 'total': 3})}\n\n"
+        yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING THEORETICAL FOUNDATION'})}\n\n"
+        
+        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis.filepath, provider, model):
+            if chunk.startswith('data: '):
+                try:
+                    data = json.loads(chunk[6:])
+                    if data.get('type') == 'content':
+                        yield chunk
+                        await asyncio.sleep(pacing_delay)
+                    elif data.get('type') == 'error':
+                        yield chunk
+                        return
+                    elif data.get('type') == 'complete':
+                        break
+                except json.JSONDecodeError:
+                    yield chunk
+                    await asyncio.sleep(pacing_delay)
+            else:
+                yield chunk
+                await asyncio.sleep(pacing_delay)
+        
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': 3, 'total': 3})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            
+    except Exception as e:
+        print(f"❌ Error in enhanced streaming: {str(e)}")
+        yield f"data: {json.dumps({'type': 'error', 'content': f'Streaming error: {str(e)}'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+
+@app.get("/simple-test-page")
+async def simple_test_page():
+    """Serve the simple streaming test page"""
+    try:
+        with open("./server/simple_test.html", encoding='utf8') as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Simple test page not found</h1>")
+
+@app.get("/debug-streaming-page")
+async def debug_streaming_page():
+    """Serve the debug streaming tool"""
+    try:
+        with open("./server/debug_streaming.html", encoding='utf8') as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Debug tool not found</h1>")
+
+@app.get("/test-streaming-page")
+async def test_streaming_page():
+    """Serve the test streaming page"""
+    try:
+        with open("./server/test_streaming.html", encoding='utf8') as f:
+            return HTMLResponse(content=f.read())
+    except FileNotFoundError:
+        return HTMLResponse(content="<h1>Test page not found</h1>")
+
+@app.get("/test-streaming")
+async def test_streaming():
+    """Test endpoint to verify streaming format"""
+    async def test_stream():
+        yield f"data: {json.dumps({'type': 'status', 'content': 'Starting test...'})}\n\n"
+        await asyncio.sleep(0.5)
+        
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Step 1/3', 'step': 1, 'total': 3})}\n\n"
+        await asyncio.sleep(0.5)
+        
+        yield f"data: {json.dumps({'type': 'content', 'content': 'This is a test message. '})}\n\n"
+        await asyncio.sleep(0.5)
+        
+        yield f"data: {json.dumps({'type': 'content', 'content': 'It should display properly. '})}\n\n"
+        await asyncio.sleep(0.5)
+        
+        yield f"data: {json.dumps({'type': 'content', 'content': 'With proper formatting.'})}\n\n"
+        await asyncio.sleep(0.5)
+        
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+    
+    return StreamingResponse(
+        test_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "Cache-Control"
+        }
+    )
+
+@app.get("/test-ai-feedback")
+async def test_ai_feedback():
+    """Test endpoint for AI feedback without authentication"""
+    
+    async def test_stream():
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Starting test analysis...', 'step': 1, 'total': 2})}\n\n"
+        
+        # Simulate some content
+        test_content = """### Test Feedback Analysis
+
+This is a test response to verify that the streaming endpoint is working correctly.
+
+#### Strengths
+- The system is properly configured
+- Streaming is functional
+- JSON parsing works correctly
+
+#### Areas for Improvement
+- Add more comprehensive error handling
+- Implement better progress tracking
+- Enhance the user interface
+
+#### Recommendations
+1. Continue testing the system
+2. Monitor performance
+3. Gather user feedback
+
+This test confirms that the AI feedback system is operational."""
+        
+        # Stream the content in chunks
+        words = test_content.split()
+        for i, word in enumerate(words):
+            yield f"data: {json.dumps({'type': 'content', 'content': word + ' '})}\n\n"
+            await asyncio.sleep(0.1)  # Simulate processing time
+        
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Test completed successfully!', 'step': 2, 'total': 2})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+    
+    return StreamingResponse(
+        test_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*",
+        }
+    )
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000, reload=True)
+    
+    # Print configuration status on startup
+    print("🚀 Starting ThesisAI Server...")
+    print(f"📁 Upload directory: {config.UPLOAD_DIR}")
+    print(f"📁 Feedback directory: {config.FEEDBACK_DIR}")
+    print(f"📁 AI responses directory: {config.AI_RESPONSES_DIR}")
+    print(f"🤖 Active AI provider: {config.get_active_provider()}")
+    
+    # Check JWT configuration
+    if not config.validate_jwt_config():
+        print("⚠️  JWT configuration warning - using default secret key")
+    
+    # Check AI provider configuration
+    ai_status = config.validate_ai_config()
+    available_providers = [k for k, v in ai_status.items() if v]
+    if available_providers:
+        print(f"✅ Available AI providers: {', '.join(available_providers)}")
+    else:
+        print("⚠️  No AI providers configured - using fallback mode")
+    
+    uvicorn.run(app, host=config.HOST, port=config.PORT, reload=config.DEBUG) 

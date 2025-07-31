@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>AI Feedback Request</title>
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Axios for HTTP requests -->
+  <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+  <!-- html2pdf for PDF generation -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.js"></script>
+  <!-- Marked for Markdown rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <!-- Main JS will be defined inline since external main.js is not provided -->
+</head>
+<body class="bg-gray-100 min-h-screen font-sans">
+  <div class="container mx-auto px-4 py-8 max-w-4xl">
+    <header class="mb-8 text-center">
+      <h1 class="text-3xl font-bold text-gray-800 mb-2">AI Feedback Request</h1>
+      <p class="text-gray-600">Send a request to get AI feedback on your thesis</p>
+    </header>
+
+    <div class="bg-white rounded-lg shadow-md p-6 mb-6">
+      <button id="sendRequest" 
+              class="w-full bg-blue-600 hover:bg-blue-700 text-white font-medium py-3 px-4 rounded-md transition duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2">
+        Send Request for AI Feedback
+      </button>
+    </div>
+
+    <div id="loading" class="hidden mb-6 text-center">
+      <div class="inline-block animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-blue-600 mr-3"></div>
+      <span class="text-lg text-gray-700">Receiving AI feedback...</span>
+    </div>
+
+    <div id="responseContainer" class="hidden bg-white rounded-lg shadow-md p-6">
+      <div class="flex justify-between items-center mb-4">
+        <h2 class="text-xl font-semibold text-gray-800">AI Feedback</h2>
+        <button id="exportPdf" 
+                class="bg-green-600 hover:bg-green-700 text-white text-sm font-medium py-2 px-4 rounded transition duration-200">
+          Export as PDF
+        </button>
+      </div>
+      
+      <div id="responseContent" class="prose max-w-none text-gray-700 leading-relaxed min-h-20"></div>
+    </div>
+
+    <div id="errorContainer" class="hidden mt-6 p-4 bg-red-50 border border-red-200 rounded-md">
+      <h3 class="text-red-800 font-medium">Error</h3>
+      <p id="errorMessage" class="text-red-700 mt-1"></p>
+    </div>
+  </div>
+
+  <script>
+    // Set up marked.js options
+    marked.setOptions({
+      gfm: true,
+      breaks: true,
+      pedantic: false
+    });
+
+    document.addEventListener('DOMContentLoaded', function() {
+      const sendRequestBtn = document.getElementById('sendRequest');
+      const loadingEl = document.getElementById('loading');
+      const responseContainer = document.getElementById('responseContainer');
+      const responseContent = document.getElementById('responseContent');
+      const errorContainer = document.getElementById('errorContainer');
+      const errorMessage = document.getElementById('errorMessage');
+      const exportPdfBtn = document.getElementById('exportPdf');
+
+      // Configuration
+      const url = 'http://localhost:8000/request-ai-feedback?thesis_id=b55a1eaa-2919-44e6-9ba3-21bc8cdc5c4c';
+      const token = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJzdiJ9.T1VwWk8ESOwJuRN-bErc4-FFfM69Z36t92pIwxzZaEQ';
+
+      sendRequestBtn.addEventListener('click', async function() {
+        // Reset UI
+        errorContainer.classList.add('hidden');
+        responseContainer.classList.add('hidden');
+        responseContent.innerHTML = '';
+        loadingEl.classList.remove('hidden');
+        sendRequestBtn.disabled = true;
+        sendRequestBtn.textContent = 'Request Sent...';
+
+        try {
+          // Using fetch API for better streaming support
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Authorization': `Bearer ${token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+
+          if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+          }
+
+          if (!response.body) {
+            throw new Error('ReadableStream not supported in this browser');
+          }
+
+          // Show response container
+          responseContainer.classList.remove('hidden');
+          
+          // Process the stream
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let receivedText = '';
+
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            const chunk = decoder.decode(value, { stream: true });
+            receivedText += chunk;
+            
+            // Parse as Markdown and update the UI
+            responseContent.innerHTML = marked.parse(receivedText);
+            
+            // Auto-scroll to bottom
+            responseContent.scrollTop = responseContent.scrollHeight;
+          }
+
+          // Final update
+          responseContent.innerHTML = marked.parse(receivedText);
+          
+        } catch (error) {
+          console.error('Error:', error);
+          errorMessage.textContent = error.message || 'An unknown error occurred';
+          errorContainer.classList.remove('hidden');
+        } finally {
+          loadingEl.classList.add('hidden');
+          sendRequestBtn.disabled = false;
+          sendRequestBtn.textContent = 'Send Request for AI Feedback';
+        }
+      });
+
+      // Export to PDF functionality
+      exportPdfBtn.addEventListener('click', function() {
+        const element = responseContainer;
+        const opt = {
+          margin: 1,
+          filename: 'ai-feedback.pdf',
+          image: { type: 'jpeg', quality: 0.98 },
+          html2canvas: { scale: 2 },
+          jsPDF: { unit: 'in', format: 'letter', orientation: 'portrait' }
+        };
+
+        // Disable button during export
+        exportPdfBtn.disabled = true;
+        exportPdfBtn.textContent = 'Generating PDF...';
+
+        html2pdf().set(opt).from(element).save().then(() => {
+          exportPdfBtn.disabled = false;
+          exportPdfBtn.textContent = 'Export as PDF';
+        });
+      });
+    });
+  </script>
+</body>
+</html>

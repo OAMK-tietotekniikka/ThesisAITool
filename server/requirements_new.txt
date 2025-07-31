@@ -1,0 +1,17 @@
+aiofiles
+pydantic[email]
+python-docx
+PyMuPDF
+pdfplumber
+chardet
+python-multipart
+fastapi
+uvicorn
+passlib[bcrypt]
+python-jose[cryptography]
+python-dotenv
+requests
+beautifulsoup4
+pandas
+openai
+aiohttp 

@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Streaming Debug Tool</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .container {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+        }
+        .panel {
+            border: 1px solid #ccc;
+            padding: 20px;
+            background: #f9f9f9;
+        }
+        .raw-output {
+            font-family: monospace;
+            white-space: pre-wrap;
+            background: #000;
+            color: #0f0;
+            padding: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        .parsed-output {
+            font-family: monospace;
+            white-space: pre-wrap;
+            background: #fff;
+            border: 1px solid #ddd;
+            padding: 10px;
+            max-height: 400px;
+            overflow-y: auto;
+        }
+        button {
+            padding: 10px 20px;
+            font-size: 16px;
+            margin: 10px;
+        }
+        .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .success {
+            color: #28a745;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 Streaming Debug Tool</h1>
+    <p>This tool will help identify why JSON parsing is not working correctly.</p>
+    
+    <button onclick="testBasicStreaming()">Test Basic Streaming</button>
+    <button onclick="testEnhancedStreaming()">Test Enhanced Streaming</button>
+    <button onclick="clearOutputs()">Clear All</button>
+    
+    <div class="container">
+        <div class="panel">
+            <h3>Raw Server Response</h3>
+            <div id="rawOutput" class="raw-output">Click a test button to see raw data...</div>
+        </div>
+        <div class="panel">
+            <h3>Parsed Content</h3>
+            <div id="parsedOutput" class="parsed-output">Click a test button to see parsed content...</div>
+        </div>
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <h3>Debug Information</h3>
+        <div id="debugInfo" style="font-family: monospace; background: #f0f0f0; padding: 10px;"></div>
+    </div>
+
+    <script>
+        let debugInfo = [];
+        
+        function addDebugInfo(message) {
+            debugInfo.push(`${new Date().toLocaleTimeString()}: ${message}`);
+            document.getElementById('debugInfo').textContent = debugInfo.join('\n');
+        }
+        
+        function clearOutputs() {
+            document.getElementById('rawOutput').textContent = '';
+            document.getElementById('parsedOutput').textContent = '';
+            debugInfo = [];
+            document.getElementById('debugInfo').textContent = '';
+        }
+        
+        async function testBasicStreaming() {
+            addDebugInfo('Starting basic streaming test...');
+            const rawOutput = document.getElementById('rawOutput');
+            const parsedOutput = document.getElementById('parsedOutput');
+            
+            rawOutput.textContent = 'Connecting...\n';
+            parsedOutput.textContent = 'Parsing...\n';
+            
+            try {
+                const response = await fetch('/test-streaming');
+                addDebugInfo('Connected to /test-streaming');
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        addDebugInfo('Stream completed');
+                        break;
+                    }
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            // Show raw data
+                            rawOutput.textContent += line + '\n';
+                            
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                addDebugInfo(`Parsed JSON: type=${data.type}, content length=${data.content?.length || 0}`);
+                                
+                                // Show parsed content
+                                switch (data.type) {
+                                    case 'content':
+                                        parsedOutput.textContent += data.content;
+                                        break;
+                                    case 'status':
+                                        parsedOutput.textContent += `[STATUS] ${data.content}\n`;
+                                        break;
+                                    case 'progress':
+                                        parsedOutput.textContent += `[PROGRESS] ${data.content}\n`;
+                                        break;
+                                    case 'error':
+                                        parsedOutput.textContent += `[ERROR] ${data.content}\n`;
+                                        break;
+                                    case 'complete':
+                                        parsedOutput.textContent += `[COMPLETE]\n`;
+                                        break;
+                                    default:
+                                        parsedOutput.textContent += `[UNKNOWN] ${JSON.stringify(data)}\n`;
+                                }
+                            } catch (e) {
+                                addDebugInfo(`JSON Parse Error: ${e.message}`);
+                                parsedOutput.textContent += `[PARSE ERROR] ${line.slice(6)}\n`;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                addDebugInfo(`Connection Error: ${error.message}`);
+                rawOutput.textContent += `ERROR: ${error.message}\n`;
+                parsedOutput.textContent += `ERROR: ${error.message}\n`;
+            }
+        }
+        
+        async function testEnhancedStreaming() {
+            addDebugInfo('Starting enhanced streaming test...');
+            const rawOutput = document.getElementById('rawOutput');
+            const parsedOutput = document.getElementById('parsedOutput');
+            
+            rawOutput.textContent = 'Connecting to enhanced endpoint...\n';
+            parsedOutput.textContent = 'Parsing enhanced data...\n';
+            
+            try {
+                // Create a simple form data for the enhanced endpoint
+                const formData = new FormData();
+                formData.append('thesis_id', 'test-thesis');
+                formData.append('custom_instructions', 'Test analysis');
+                formData.append('predefined_questions', '["What are the strengths?"]');
+                formData.append('pacing_delay', '0.01');
+                
+                const response = await fetch('/request-ai-feedback-enhanced', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+                }
+                
+                addDebugInfo('Connected to enhanced endpoint');
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        addDebugInfo('Enhanced stream completed');
+                        break;
+                    }
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            // Show raw data
+                            rawOutput.textContent += line + '\n';
+                            
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                addDebugInfo(`Enhanced: type=${data.type}, content length=${data.content?.length || 0}`);
+                                
+                                // Show parsed content
+                                switch (data.type) {
+                                    case 'content':
+                                        parsedOutput.textContent += data.content;
+                                        break;
+                                    case 'status':
+                                        parsedOutput.textContent += `[STATUS] ${data.content}\n`;
+                                        break;
+                                    case 'progress':
+                                        parsedOutput.textContent += `[PROGRESS] ${data.content}\n`;
+                                        break;
+                                    case 'section':
+                                        parsedOutput.textContent += `[SECTION] ${data.content}\n`;
+                                        break;
+                                    case 'error':
+                                        parsedOutput.textContent += `[ERROR] ${data.content}\n`;
+                                        break;
+                                    case 'complete':
+                                        parsedOutput.textContent += `[COMPLETE]\n`;
+                                        break;
+                                    default:
+                                        parsedOutput.textContent += `[UNKNOWN] ${JSON.stringify(data)}\n`;
+                                }
+                            } catch (e) {
+                                addDebugInfo(`Enhanced JSON Parse Error: ${e.message}`);
+                                parsedOutput.textContent += `[PARSE ERROR] ${line.slice(6)}\n`;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                addDebugInfo(`Enhanced Connection Error: ${error.message}`);
+                rawOutput.textContent += `ERROR: ${error.message}\n`;
+                parsedOutput.textContent += `ERROR: ${error.message}\n`;
+            }
+        }
+    </script>
+</body>
+</html> 

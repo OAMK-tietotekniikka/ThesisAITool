@@ -28,7 +28,11 @@ function initEventListeners() {
     
     // Upload thesis
     const uploadArea = document.getElementById('uploadForm');
-    uploadArea.addEventListener('click', () => {
+    uploadArea.addEventListener('click', (e) => {
+        // Don't trigger file dialog if clicking on a button
+        if (e.target.tagName === 'BUTTON') {
+            return;
+        }
         const fileInput = document.getElementById('thesisFile');
         if (fileInput) {
             fileInput.click();  // Ensure the file input is clicked properly
@@ -398,9 +402,12 @@ function showSection(sectionId) {
 // Handle file selection for thesis upload
 function handleFileSelect(file) {
     const uploadArea = document.getElementById('uploadForm');
-    const fileInput = document.getElementById('thesisFile'); // Get the existing file input element
+    const fileInput = document.getElementById('thesisFile');
 
-    // Set the innerHTML of the upload area excluding the file input element (it remains intact)
+    // Update the upload area content while keeping the file input intact
+    const fileInputClone = fileInput.cloneNode(true);
+    fileInputClone.files = fileInput.files;
+    
     uploadArea.innerHTML = `
         <div class="flex items-center justify-center">
             <i class="fas fa-file-word text-indigo-500 text-2xl mr-3"></i>
@@ -414,8 +421,8 @@ function handleFileSelect(file) {
         </button>
     `;
 
-    // Reattach the hidden file input element to the DOM without triggering the file dialog
-    uploadArea.appendChild(fileInput); // Ensure the file input is still present but hidden
+    // Add the file input back to the upload area
+    uploadArea.appendChild(fileInputClone);
 }
 
 // Upload thesis file
@@ -462,8 +469,21 @@ async function uploadThesis() {
             `;
             uploadArea.classList.remove('hidden');
             
-            // Reset the file input
-            fileInput.value = '';
+            // Create a new file input and add it to the upload area
+            const newFileInput = document.createElement('input');
+            newFileInput.type = 'file';
+            newFileInput.id = 'thesisFile';
+            newFileInput.className = 'hidden';
+            newFileInput.accept = '.pdf,.doc,.docx';
+            
+            // Add event listener to the new file input
+            newFileInput.addEventListener('change', (e) => {
+                if (e.target.files.length) {
+                    handleFileSelect(e.target.files[0]);
+                }
+            });
+            
+            uploadArea.appendChild(newFileInput);
             
             // Refresh my theses list
             loadMyTheses();
@@ -476,6 +496,37 @@ async function uploadThesis() {
         document.getElementById('uploadErrorMessage').textContent = error.response?.data?.detail || 'Failed to upload thesis';
         console.error('Upload failed:', error);
     }
+}
+
+// Upload another thesis - reset the form
+function uploadAnotherThesis() {
+    // Hide the success message
+    document.getElementById('uploadSuccess').classList.add('hidden');
+    
+    // Reset the upload area
+    const uploadArea = document.getElementById('uploadForm');
+    uploadArea.innerHTML = `
+        <i class="fas fa-cloud-upload-alt text-4xl text-indigo-500 mb-3"></i>
+        <p class="text-lg font-medium text-gray-700">Drag & drop your thesis file here or click to browse</p>
+        <p class="text-sm text-gray-500 mt-2">Supported formats: PDF, DOC, DOCX</p>
+    `;
+    uploadArea.classList.remove('hidden');
+    
+    // Create a new file input and add it to the upload area
+    const newFileInput = document.createElement('input');
+    newFileInput.type = 'file';
+    newFileInput.id = 'thesisFile';
+    newFileInput.className = 'hidden';
+    newFileInput.accept = '.pdf,.doc,.docx';
+    
+    // Add event listener to the new file input
+    newFileInput.addEventListener('change', (e) => {
+        if (e.target.files.length) {
+            handleFileSelect(e.target.files[0]);
+        }
+    });
+    
+    uploadArea.appendChild(newFileInput);
 }
 
 // Load student's theses
@@ -615,9 +666,11 @@ async function loadAIFeedback() {
         thesisSelect.innerHTML = '<option value="">-- Select a thesis --</option>';
         
         if (response.data.length === 0) {
+            // Show no theses message and hide the feedback form
             document.getElementById('noThesesForFeedback').classList.remove('hidden');
             document.getElementById('aiFeedbackContent').classList.add('hidden');
         } else {
+            // Show feedback form and hide no theses message
             document.getElementById('noThesesForFeedback').classList.add('hidden');
             document.getElementById('aiFeedbackContent').classList.remove('hidden');
             
@@ -638,80 +691,7 @@ async function loadAIFeedback() {
     hideLoading();
 }
 
-// Request AI feedback
-// async function requestAIFeedback() {
-//     const thesisId = document.getElementById('thesisSelect').value;
-//     if (!thesisId) {
-//         alert('Please select a thesis first');
-//         return;
-//     }
-    
-//     const customInstructions = document.getElementById('customInstructions').value;
-//     const selectedQuestions = [];
-    
-//     // Get selected predefined questions
-//     if (document.getElementById('q1').checked) selectedQuestions.push('strengths');
-//     if (document.getElementById('q2').checked) selectedQuestions.push('improvements');
-//     if (document.getElementById('q3').checked) selectedQuestions.push('methodology');
-    
-//     showLoading();
-    
-//     try {
-//         console.log("thesisId:", thesisId);
-
-//         // Prepare the data to be sent as URLSearchParams
-//         const data = new URLSearchParams();
-//         data.append('custom_instructions', customInstructions);
-//         selectedQuestions.forEach((question, index) => {
-//             data.append(`predefined_questions[${index}]`, question);
-//         });
-
-//         // Send the POST request using axios with thesis_id as a query parameter
-//         const response = await axios.post(`${API_BASE_URL}/request-ai-feedback?thesis_id=${thesisId}`, data, {
-//             headers: {
-//                 'Content-Type': 'application/x-www-form-urlencoded',
-//                 'Authorization': `Bearer ${authToken}`
-//             }
-//         });
-
-//         console.log("requestAIFeedback response:", response);
-
-//         // Display feedback
-//         document.getElementById('feedbackContent').innerHTML = `
-//             <h4>Overall Assessment</h4>
-//             <p>${response.data.overall_assessment || 'No overall assessment provided.'}</p>
-            
-//             ${selectedQuestions.includes('strengths') ? `
-//                 <h4 class="mt-4">Strengths</h4>
-//                 <p>${response.data.strengths || 'No strengths identified.'}</p>
-//             ` : ''}
-            
-//             ${selectedQuestions.includes('improvements') ? `
-//                 <h4 class="mt-4">Areas for Improvement</h4>
-//                 <p>${response.data.improvements || 'No areas for improvement identified.'}</p>
-//             ` : ''}
-            
-//             ${selectedQuestions.includes('methodology') ? `
-//                 <h4 class="mt-4">Methodology Review</h4>
-//                 <p>${response.data.methodology || 'No methodology feedback provided.'}</p>
-//             ` : ''}
-            
-//             ${customInstructions ? `
-//                 <h4 class="mt-4">Custom Feedback</h4>
-//                 <p>${response.data.custom_feedback || 'No custom feedback provided.'}</p>
-//             ` : ''}
-//         `;
-        
-//         document.getElementById('feedbackResults').classList.remove('hidden');
-//     } catch (error) {
-//         console.error('Failed to get AI feedback:', error);
-//         alert('Failed to get AI feedback. Please try again.');
-//     }
-    
-//     hideLoading();
-// }
-
-// Request AI feedback
+// Request AI feedback - Completely rewritten
 async function requestAIFeedback() {
     const thesisId = document.getElementById('thesisSelect').value;
     if (!thesisId) {
@@ -719,154 +699,185 @@ async function requestAIFeedback() {
         return;
     }
 
-    const customInstructions = document.getElementById('customInstructions').value;
-    const selectedQuestions = [];
-    // const modelID = document.getElementById('modelID').value;
+    const selectedOption = document.getElementById('thesisSelect').selectedOptions[0];
+    const thesisTitle = selectedOption.textContent;
+    const customInstructions = "Please review this thesis and provide comprehensive feedback.";
+    const selectedQuestions = [
+        "Strengths?",
+        "Areas for improvement?",
+        "Methodology alignment?",
+        "Reference formatting?",
+        "Theoretical foundation?"
+    ];
 
-    // Get selected predefined questions
-    if (document.getElementById('q1').checked) selectedQuestions.push('strengths');
-    if (document.getElementById('q2').checked) selectedQuestions.push('improvements');
-    if (document.getElementById('q3').checked) selectedQuestions.push('methodology');
+    // Show results section
+    document.getElementById('feedbackResults').classList.remove('hidden');
+    document.getElementById('feedbackThesisTitle').textContent = thesisTitle;
+    document.getElementById('feedbackThesisDate').textContent = `Uploaded on ${new Date().toLocaleDateString()}`;
+    document.getElementById('feedbackThesisStatus').textContent = 'AI Reviewed';
 
-    showLoading();
+    const feedbackContainer = document.getElementById('feedbackContent');
+    const statusBadge = document.getElementById('streamStatus');
+    const requestFeedbackBtn = document.getElementById('requestFeedbackBtn');
+    
+    // Disable button and show loading
+    requestFeedbackBtn.disabled = true;
+    requestFeedbackBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Requesting...';
+    statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Generating...';
+    feedbackContainer.innerHTML = '';
 
     try {
-        // Prepare the data to be sent as URLSearchParams
         const data = new URLSearchParams();
         data.append('custom_instructions', customInstructions);
-        selectedQuestions.forEach((question, index) => {
-            data.append(`predefined_questions[${index}]`, question);
+        selectedQuestions.forEach((q, i) => data.append(`predefined_questions[${i}]`, q));
+
+        const url = `${API_BASE_URL}/request-ai-feedback?thesis_id=${encodeURIComponent(thesisId)}`;
+        const headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Bearer ${authToken}`
+        };
+
+        const response = await fetch(url, { 
+            method: 'POST', 
+            headers, 
+            body: data.toString() 
         });
-        // data.append('model_id', modelID)
+        
+        if (!response.ok) {
+            throw new Error(`HTTP error! status: ${response.status}`);
+        }
 
-        // print(data.model_id);
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder('utf-8');
+        let buffer = '';
+        let accumulatedContent = '';
 
-        // Send the POST request using axios with thesis_id as a query parameter
-        const response = await axios.post(`${API_BASE_URL}/request-ai-feedback?thesis_id=${thesisId}`, data, {
-            headers: {
-                'Content-Type': 'application/x-www-form-urlencoded',
-                'Authorization': `Bearer ${authToken}`
+        while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.trim() === '') continue;
+                
+                // Handle Server-Sent Events format
+                if (line.startsWith('data: ')) {
+                    const data = line.substring(6); // Remove 'data: ' prefix
+                    if (data.trim() === '') continue;
+                    
+                    try {
+                        // Parse the JSON data
+                        const jsonData = JSON.parse(data);
+                        
+                        if (jsonData.type === 'content') {
+                            accumulatedContent += jsonData.content;
+                            // Convert accumulated markdown to HTML
+                            const htmlContent = marked.parse(accumulatedContent);
+                            // Sanitize HTML
+                            const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                            feedbackContainer.innerHTML = sanitizedHtml;
+                            feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
+                        } else if (jsonData.type === 'progress') {
+                            statusBadge.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${jsonData.content}`;
+                        } else if (jsonData.type === 'error') {
+                            throw new Error(jsonData.content);
+                        } else if (jsonData.type === 'complete') {
+                            // Stream completed
+                            break;
+                        }
+                    } catch (e) {
+                        if (e.message && e.message !== 'Unexpected end of JSON input') {
+                            throw e; // Re-throw actual errors
+                        }
+                        // Ignore JSON parsing errors for incomplete chunks
+                    }
+                } else {
+                    // Handle plain text (fallback)
+                    accumulatedContent += line;
+                    const htmlContent = marked.parse(accumulatedContent);
+                    const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                    feedbackContainer.innerHTML = sanitizedHtml;
+                    feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
+                }
+            }
+        }
+
+        statusBadge.innerHTML = '<i class="fas fa-check-circle mr-1"></i>Complete';
+        statusBadge.classList.remove('bg-yellow-100', 'text-yellow-800');
+        statusBadge.classList.add('bg-green-100', 'text-green-800');
+
+        // Save feedback
+        const saveData = new URLSearchParams();
+        saveData.append('feedback_content', accumulatedContent);
+        await axios.post(`${API_BASE_URL}/save-ai-feedback?thesis_id=${thesisId}`, saveData, {
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded', 
+                'Authorization': `Bearer ${authToken}` 
             }
         });
 
-        const aiFeedbackMessage = response.data.message || "No AI feedback available.";
-        const feedbackId = response.data.feedback_id;
-
-        // Convert markdown to HTML using marked.js
-        const markdownHTML = marked.parse(aiFeedbackMessage);
-
-        // Insert it into a nicely styled div
-        document.getElementById('feedbackContent').innerHTML = `
-            <h4>AI Feedback</h4>
-            <div class="markdown-body">${markdownHTML}</div>
-            <p><strong>Feedback ID:</strong> ${feedbackId}</p>
-        `;
-
-        // Show feedback results
-        document.getElementById('feedbackResults').classList.remove('hidden');
     } catch (error) {
-        console.error('Failed to get AI feedback:', error);
-        alert('Failed to get AI feedback. Please try again.');
+        console.error('Failed to stream AI feedback:', error);
+        statusBadge.innerHTML = `<i class="fas fa-exclamation-circle mr-1"></i>Error: ${error.message}`;
+        statusBadge.classList.remove('bg-yellow-100', 'text-yellow-800');
+        statusBadge.classList.add('bg-red-100', 'text-red-800');
+        feedbackContainer.innerHTML = `<p class="text-red-600">Failed to generate feedback: ${error.message}</p>`;
+    } finally {
+        // Re-enable button
+        requestFeedbackBtn.disabled = false;
+        requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
     }
+}
 
-// STREAMING TEST, NOT ERR BUT SHOW ALL CONTENT AT ONCE, NO DIFFERENT
-// try {
-//     hideLoading();
-//     // Prepare URL-encoded form data
-//     const data = new URLSearchParams();
-//     data.append('custom_instructions', customInstructions);
-//     selectedQuestions.forEach((question, index) => {
-//         data.append(`predefined_questions[${index}]`, question);
-//     });
-
-//     // Construct full URL with thesis_id in query
-//     const url = `${API_BASE_URL}/request-ai-feedback?thesis_id=${encodeURIComponent(thesisId)}`;
-
-//     // Prepare headers
-//     const headers = {
-//         'Content-Type': 'application/x-www-form-urlencoded',
-//         'Authorization': `Bearer ${authToken}`
-//     };
-
-//     // Send the POST request using fetch and stream the response
-//     const response = await fetch(url, {
-//         method: 'POST',
-//         headers,
-//         body: data.toString()
-//     });
-
-//     if (!response.ok || !response.body) {
-//         throw new Error('Network response was not OK or stream is missing.');
-//     }
-
-//     const reader = response.body.getReader();
-//     const decoder = new TextDecoder('utf-8');
-//     let buffer = '';
-//     let streamedMessage = '';
-
-//     const feedbackContainer = document.getElementById('feedbackContent');
-//     feedbackContainer.innerHTML = `<h4>AI Feedback (Streaming)</h4><div class="markdown-body" id="streamedOutput"></div>`;
-//     const outputDiv = document.getElementById('streamedOutput');
-
-//     // Read and render stream line-by-line
-//     while (true) {
-//         const { value, done } = await reader.read();
-//         if (done) break;
-
-//         buffer += decoder.decode(value, { stream: true });
-
-//         const parts = buffer.split('\n\n');
-//         buffer = parts.pop(); // Keep last partial in buffer
-
-//         for (const part of parts) {
-//             const match = part.match(/^data:\s*(.*)$/);
-//             if (match) {
-//                 const text = match[1];
-//                 streamedMessage += text + '\n';
-
-//                 // Render each line without overwriting
-//                 const paragraph = document.createElement('div');
-//                 paragraph.innerHTML = marked.parseInline(text);
-//                 outputDiv.appendChild(paragraph);
-
-//                 // Optional: Auto-scroll
-//                 outputDiv.scrollTop = outputDiv.scrollHeight;
-//             }
-//         }
-//     }
-
-//     document.getElementById('feedbackResults').classList.remove('hidden');
-// } catch (error) {
-//     console.error('Failed to stream AI feedback:', error);
-//     alert('Failed to get AI feedback. Please try again.');
-// }
-
-    hideLoading();
+// Request new feedback function
+function requestNewFeedback() {
+    // Hide current results and show the form again
+    document.getElementById('feedbackResults').classList.add('hidden');
+    document.getElementById('aiFeedbackContent').classList.remove('hidden');
+    
+    // Reset the thesis select
+    document.getElementById('thesisSelect').value = '';
 }
 
 // Download feedback as PDF using html2pdf
 function downloadFeedback() {
     const feedbackContent = document.getElementById('feedbackContent');
+    const thesisTitle = document.getElementById('feedbackThesisTitle').textContent;
+    const thesisDate = document.getElementById('feedbackThesisDate').textContent;
 
     // Get the current date and time
     const currentDate = new Date();
     const formattedDate = currentDate.toLocaleString();
 
-    // Add title and time to the feedback content
-    const title = `<h1 style="text-align:center; padding-bottom: 20px; font-weight: bold; font-size:1.5rem">Thesis AI Feedback</h1>`;
-    const date = `<p style="text-align:right; font-size: 12px;">Generated on: ${formattedDate}</p><br><br>`;
+    // Create a clean version of the feedback content for PDF
+    const cleanContent = feedbackContent.cloneNode(true);
+    
+    // Add title and metadata to the feedback content
+    const title = `<h1 style="text-align:center; padding-bottom: 20px; font-weight: bold; font-size:1.5rem; color: #1f2937;">Thesis AI Feedback Report</h1>`;
+    const metadata = `
+        <div style="background-color: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 20px; border-left: 4px solid #6366f1;">
+            <h3 style="margin: 0 0 10px 0; color: #374151; font-size: 1.1rem;">Thesis Information</h3>
+            <p style="margin: 5px 0; color: #6b7280;"><strong>Thesis:</strong> ${thesisTitle}</p>
+            <p style="margin: 5px 0; color: #6b7280;"><strong>${thesisDate}</strong></p>
+            <p style="margin: 5px 0; color: #6b7280;"><strong>Generated:</strong> ${formattedDate}</p>
+        </div>
+    `;
+    const date = `<p style="text-align:right; font-size: 12px; color: #6b7280; margin-bottom: 20px;">Report generated on: ${formattedDate}</p>`;
 
-    // Apply padding and margin to content for better formatting
-    const contentWithTitleAndTime = title + date + feedbackContent.outerHTML;
+    // Apply styling for better PDF formatting
+    const contentWithTitleAndMetadata = title + metadata + date + cleanContent.outerHTML;
 
     // Generate PDF from HTML content
     html2pdf()
-        .from(contentWithTitleAndTime)  // Add title, time, and feedback content
+        .from(contentWithTitleAndMetadata)
         .set({
-            margin:       [20, 20, 20, 20], // Add padding around the content (top, right, bottom, left)
-            filename:     'ai_feedback.pdf',
-            html2canvas:  { scale: 2 },  // Improve rendering quality
-            jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            margin: [20, 20, 20, 20], // Add padding around the content (top, right, bottom, left)
+            filename: `ai_feedback_${thesisTitle.replace(/[^a-zA-Z0-9]/g, '_')}.pdf`,
+            html2canvas: { scale: 2 },  // Improve rendering quality
+            jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait' }
         })
         .save();   // Save the PDF
 }
@@ -1505,3 +1516,268 @@ function convertMarkdownToDiv(markdownText) {
 
   return container;
 }
+
+// Render streaming content with better formatting
+// function renderStreamingContent(text, container) {
+//     // Clean up the text first
+//     let cleanText = text
+//         // Fix common streaming issues
+//         .replace(/([a-zA-Z])([A-Z])/g, '$1 $2') // Add space between camelCase
+//         .replace(/([a-zA-Z])(\d)/g, '$1 $2') // Add space between letter and number
+//         .replace(/(\d)([a-zA-Z])/g, '$1 $2') // Add space between number and letter
+//         .replace(/([.!?])([A-Z])/g, '$1\n\n$2') // Add paragraph breaks after sentences
+//         .replace(/([.!?])\s+([A-Z])/g, '$1\n\n$2') // Fix existing sentence breaks
+//         .replace(/\n{3,}/g, '\n\n') // Remove excessive line breaks
+//         .trim();
+
+//     // Use marked.js for proper markdown rendering
+//     try {
+//         const htmlContent = marked.parse(cleanText, {
+//             breaks: true,
+//             gfm: true
+//         });
+        
+//         container.innerHTML = `
+//             <div class="prose prose-indigo max-w-none">
+//                 ${htmlContent}
+//             </div>
+//         `;
+//     } catch (error) {
+//         // Fallback to plain text if markdown parsing fails
+//         container.innerHTML = `
+//             <div class="prose prose-indigo max-w-none">
+//                 <p>${cleanText.replace(/\n/g, '</p><p>')}</p>
+//             </div>
+//         `;
+//     }
+// }
+function renderStreamingContent(streamedMessage, container) {
+    // Clean minor broken word issues
+    const cleaned = streamedMessage
+        .replace(/\s+([.,;:!?])/g, '$1')
+        .replace(/([.,;:!?])([A-Za-z])/g, '$1 $2')
+        .replace(/\s{2,}/g, ' ');
+
+    // Convert markdown → HTML
+    container.innerHTML = marked.parse(cleaned);
+
+    // Auto-scroll
+    container.scrollTop = container.scrollHeight;
+}
+
+function cleanStreamedText(text) {
+    return text
+        // Merge broken words with spaces in middle of letters
+        .replace(/(\w)\s+(\w)/g, (match, p1, p2) => {
+            // Merge only if both are lowercase or both uppercase (likely a broken word)
+            if ((/[a-z]/.test(p1) && /[a-z]/.test(p2)) || (/[A-Z]/.test(p1) && /[A-Z]/.test(p2))) {
+                return p1 + p2;
+            }
+            return p1 + ' ' + p2;
+        })
+        // Fix spacing around punctuation
+        .replace(/\s+([.,;:!?])/g, '$1')
+        .replace(/([.,;:!?])([A-Za-z])/g, '$1 $2')
+        // Remove multiple spaces
+        .replace(/\s{2,}/g, ' ')
+        // Normalize line breaks (keep bullet or numbered list breaks)
+        .replace(/([^\n])\n([^\n])/g, '$1 $2')
+        .trim();
+}
+
+const requestFeedbackBtn = document.getElementById('requestFeedbackBtn');
+const feedbackResultsDiv = document.getElementById('feedbackResults');
+const feedbackContentDiv = document.getElementById('feedbackContent');
+const streamStatusSpan = document.getElementById('streamStatus');
+const noThesesForFeedbackDiv = document.getElementById('noThesesForFeedback');
+
+let currentFeedbackThesisId = null; // Keep track of the thesis being processed
+
+requestFeedbackBtn.addEventListener('click', async function () {
+    const thesisId = thesisSelect.value;
+    const modelID = document.getElementById('modelID').value.trim() || "meta-llama/Meta-Llama-3.1-8B-Instruct"; // Default model
+
+    if (!thesisId) {
+        alert('Please select a thesis.');
+        return;
+    }
+
+    // Show results section, hide no thesis message
+    feedbackResultsDiv.classList.remove('hidden');
+    noThesesForFeedbackDiv.classList.add('hidden');
+
+    // Reset content and status
+    feedbackContentDiv.innerHTML = '<p class="text-gray-500">Initializing feedback generation...</p>';
+    streamStatusSpan.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Connecting...';
+    streamStatusSpan.classList.remove('bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
+    streamStatusSpan.classList.add('bg-yellow-100', 'text-yellow-800');
+
+    // Disable button during request
+    requestFeedbackBtn.disabled = true;
+    requestFeedbackBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Requesting...';
+
+    currentFeedbackThesisId = thesisId; // Set the ID for this request
+
+    try {
+        // Prepare form data
+        const data = new URLSearchParams();
+        data.append('custom_instructions', 'Please review this thesis and provide comprehensive feedback.');
+        data.append('predefined_questions[0]', 'What are the strengths?');
+        data.append('predefined_questions[1]', 'What areas need improvement?');
+        data.append('predefined_questions[2]', 'How well does the methodology align?');
+        data.append('predefined_questions[3]', 'Are there reference formatting issues?');
+        data.append('predefined_questions[4]', 'How well is the theoretical foundation presented?');
+
+        const url = `${API_BASE_URL}/request-ai-feedback?thesis_id=${encodeURIComponent(thesisId)}`;
+        const headers = {
+            'Content-Type': 'application/x-www-form-urlencoded',
+            'Authorization': `Bearer ${authToken}`
+        };
+
+        const response = await fetch(url, {
+            method: 'POST',
+            headers,
+            body: data.toString()
+        });
+
+        if (!response.ok || !response.body) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+        let accumulatedContent = '';
+
+        while (true) {
+            const { done, value } = await reader.read();
+            if (done) {
+                break;
+            }
+
+            buffer += decoder.decode(value, { stream: true });
+            const lines = buffer.split('\n');
+            buffer = lines.pop() || '';
+
+            for (const line of lines) {
+                if (line.trim() === '') continue;
+                
+                // Handle Server-Sent Events format
+                if (line.startsWith('data: ')) {
+                    const data = line.substring(6); // Remove 'data: ' prefix
+                    if (data.trim() === '') continue;
+                    
+                    try {
+                        // Parse the JSON data
+                        const jsonData = JSON.parse(data);
+                        
+                        if (jsonData.type === 'content') {
+                            accumulatedContent += jsonData.content;
+                            // Convert accumulated markdown to HTML
+                            const htmlContent = marked.parse(accumulatedContent);
+                            // Sanitize HTML
+                            const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                            feedbackContainer.innerHTML = sanitizedHtml;
+                            feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
+                        } else if (jsonData.type === 'progress') {
+                            streamStatusSpan.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${jsonData.content}`;
+                        } else if (jsonData.type === 'error') {
+                            throw new Error(jsonData.content);
+                        } else if (jsonData.type === 'complete') {
+                            // Stream completed
+                            break;
+                        }
+                    } catch (e) {
+                        if (e.message && e.message !== 'Unexpected end of JSON input') {
+                            throw e; // Re-throw actual errors
+                        }
+                        // Ignore JSON parsing errors for incomplete chunks
+                    }
+                } else {
+                    // Handle plain text (fallback)
+                    accumulatedContent += line;
+                    const htmlContent = marked.parse(accumulatedContent);
+                    const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                    feedbackContainer.innerHTML = sanitizedHtml;
+                    feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
+                }
+            }
+        }
+
+        // Stream finished successfully
+        streamStatusSpan.innerHTML = '<i class="fas fa-check-circle mr-1"></i>Complete';
+        streamStatusSpan.classList.remove('bg-yellow-100', 'text-yellow-800');
+        streamStatusSpan.classList.add('bg-green-100', 'text-green-800');
+
+        // Save feedback
+        const saveData = new URLSearchParams();
+        saveData.append('feedback_content', accumulatedContent);
+        await axios.post(`${API_BASE_URL}/save-ai-feedback?thesis_id=${thesisId}`, saveData, {
+            headers: { 
+                'Content-Type': 'application/x-www-form-urlencoded', 
+                'Authorization': `Bearer ${authToken}` 
+            }
+        });
+
+    } catch (error) {
+        console.error("AI Feedback Streaming Error:", error);
+        streamStatusSpan.innerHTML = `<i class="fas fa-exclamation-circle mr-1"></i>Error: ${error.message || 'Unknown error'}`;
+        streamStatusSpan.classList.remove('bg-yellow-100', 'text-yellow-800');
+        streamStatusSpan.classList.add('bg-red-100', 'text-red-800');
+        feedbackContentDiv.innerHTML = `<p class="text-red-600">Failed to generate feedback: ${error.message}</p>`;
+    } finally {
+        // Re-enable button
+        requestFeedbackBtn.disabled = false;
+        requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
+        currentFeedbackThesisId = null; // Clear the ID
+    }
+});
+
+// --- Helper function (if needed for updating list status) ---
+// function updateThesisStatusInList(thesisId, statusText) {
+//     const statusCell = document.querySelector(`#myThesesSection tr[data-thesis-id="${thesisId}"] .status-cell`); // Adjust selector
+//     if (statusCell) {
+//         statusCell.textContent = statusText; // Or update innerHTML if using badges etc.
+//     }
+// }
+
+// --- Basic HTML escaping function (fallback if DOMPurify isn't used) ---
+// function escapeHtml(unsafe) {
+//     return unsafe
+//         .replace(/&/g, "&amp;")
+//         .replace(/</g, "<")
+//         .replace(/>/g, ">")
+//         .replace(/"/g, "&quot;")
+//         .replace(/'/g, "&#039;");
+// }
+
+// --- Ensure the feedback section is reset when switching theses or re-requesting ---
+function resetFeedbackDisplay() {
+    if (feedbackResultsDiv) feedbackResultsDiv.classList.add('hidden');
+    if (feedbackContentDiv) feedbackContentDiv.innerHTML = '';
+    if (streamStatusSpan) {
+        streamStatusSpan.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Generating...';
+        streamStatusSpan.className = 'px-3 py-1 bg-white bg-opacity-20 text-white text-xs font-medium rounded-full'; // Reset to initial class
+    }
+    // Re-enable button if it was disabled by a previous error
+    if (requestFeedbackBtn) {
+        requestFeedbackBtn.disabled = false;
+        requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
+    }
+    currentFeedbackThesisId = null;
+}
+
+// You might call resetFeedbackDisplay() when:
+// - The user selects a different thesis from the dropdown
+// - The 'Request New Feedback' button is clicked
+// - The AI Feedback section is shown/hidden
+
+// Example: Reset on thesis selection change (if feedback hasn't started or completed for the *new* selection)
+// thesisSelect.addEventListener('change', function() {
+//     if (this.value !== currentFeedbackThesisId) {
+//         resetFeedbackDisplay();
+//     }
+// });
+
+// Example: Reset for 'Request New Feedback' button (assuming it exists and calls the main request function)
+// document.getElementById('requestNewFeedbackBtn')?.addEventListener('click', resetFeedbackDisplay); // Use optional chaining

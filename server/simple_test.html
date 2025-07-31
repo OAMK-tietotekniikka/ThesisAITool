@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Streaming Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+        .output {
+            border: 2px solid #007bff;
+            padding: 20px;
+            min-height: 300px;
+            background: #f8f9fa;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        button {
+            padding: 15px 30px;
+            font-size: 18px;
+            margin: 10px;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 5px;
+            cursor: pointer;
+        }
+        button:hover {
+            background: #0056b3;
+        }
+        .status {
+            color: #007bff;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .error {
+            color: #dc3545;
+            font-weight: bold;
+        }
+        .success {
+            color: #28a745;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <h1>🎯 Simple Streaming Test</h1>
+    <p>This test will show you exactly what's happening with the JSON parsing.</p>
+    
+    <button onclick="runTest()">🚀 Run Test</button>
+    <button onclick="clearOutput()">🗑️ Clear</button>
+    
+    <div class="output" id="output">
+        Click "Run Test" to start the streaming test...
+    </div>
+    
+    <div style="margin-top: 20px;">
+        <h3>What you should see:</h3>
+        <ul>
+            <li>✅ Status messages in blue</li>
+            <li>✅ Progress indicators</li>
+            <li>✅ Actual text content (not JSON)</li>
+            <li>✅ Completion message in green</li>
+        </ul>
+    </div>
+
+    <script>
+        async function runTest() {
+            const output = document.getElementById('output');
+            output.textContent = '🔄 Starting test...\n\n';
+            
+            try {
+                const response = await fetch('/test-streaming');
+                output.textContent += '✅ Connected to server\n\n';
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) {
+                        output.textContent += '\n✅ Stream completed!\n';
+                        break;
+                    }
+                    
+                    const chunk = decoder.decode(value);
+                    const lines = chunk.split('\n');
+                    
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            try {
+                                const data = JSON.parse(line.slice(6));
+                                
+                                // Display based on type
+                                switch (data.type) {
+                                    case 'status':
+                                        output.textContent += `📊 STATUS: ${data.content}\n`;
+                                        break;
+                                    case 'progress':
+                                        output.textContent += `📈 PROGRESS: ${data.content}\n`;
+                                        break;
+                                    case 'content':
+                                        output.textContent += data.content;
+                                        break;
+                                    case 'error':
+                                        output.textContent += `❌ ERROR: ${data.content}\n`;
+                                        break;
+                                    case 'complete':
+                                        output.textContent += `✅ COMPLETE\n`;
+                                        break;
+                                    default:
+                                        output.textContent += `❓ UNKNOWN: ${JSON.stringify(data)}\n`;
+                                }
+                            } catch (e) {
+                                output.textContent += `❌ PARSE ERROR: ${e.message}\n`;
+                                output.textContent += `Raw data: ${line.slice(6)}\n`;
+                            }
+                        }
+                    }
+                }
+            } catch (error) {
+                output.textContent += `❌ CONNECTION ERROR: ${error.message}\n`;
+            }
+        }
+        
+        function clearOutput() {
+            document.getElementById('output').textContent = '';
+        }
+    </script>
+</body>
+</html> 

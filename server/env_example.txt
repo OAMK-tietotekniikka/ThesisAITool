@@ -1,0 +1,75 @@
+# ThesisAI Server Configuration
+# Copy this content to a .env file and fill in your actual values
+
+# =============================================================================
+# JWT CONFIGURATION
+# =============================================================================
+# JWT Secret Key (REQUIRED for production - generate a secure random key)
+JWT_SECRET_KEY=your-super-secure-jwt-secret-key-here
+
+# JWT Algorithm (default: HS256)
+JWT_ALGORITHM=HS256
+
+# JWT Token Expiration Time in Minutes (default: 30)
+JWT_ACCESS_TOKEN_EXPIRE_MINUTES=30
+
+# =============================================================================
+# AI PROVIDER CONFIGURATION
+# =============================================================================
+# Active AI Provider (default: openrouter)
+# Options: openai, deepseek, openrouter
+ACTIVE_AI_PROVIDER=openrouter
+
+# OpenAI API Key (get from https://platform.openai.com/api-keys)
+OPENAI_API_KEY=your_openai_api_key_here
+
+# DeepSeek API Key (get from https://platform.deepseek.com/)
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
+
+# OpenRouter API Key (get from https://openrouter.ai/keys)
+OPENROUTER_API_KEY=your_openrouter_api_key_here
+
+# =============================================================================
+# AI PROVIDER DEFAULT MODELS (Optional - uses defaults if not set)
+# =============================================================================
+# OpenAI Default Model
+OPENAI_DEFAULT_MODEL=gpt-4o
+
+# DeepSeek Default Model
+DEEPSEEK_DEFAULT_MODEL=deepseek-chat
+
+# OpenRouter Default Model
+OPENROUTER_DEFAULT_MODEL=deepseek/deepseek-r1:free
+
+# =============================================================================
+# SERVER CONFIGURATION
+# =============================================================================
+# Server Host (default: 0.0.0.0)
+HOST=0.0.0.0
+
+# Server Port (default: 8000)
+PORT=8000
+
+# Debug Mode (default: False)
+DEBUG=False
+
+# =============================================================================
+# FILE STORAGE CONFIGURATION
+# =============================================================================
+# Upload Directory (default: thesis_uploads)
+UPLOAD_DIR=thesis_uploads
+
+# Feedback Directory (default: feedback_files)
+FEEDBACK_DIR=feedback_files
+
+# AI Responses Directory (default: ai_responses)
+AI_RESPONSES_DIR=ai_responses
+
+# =============================================================================
+# AI CONFIGURATION
+# =============================================================================
+# Maximum Tokens for AI Responses (default: 18000)
+AI_MAX_TOKENS=18000
+
+# AI Seed for Reproducible Results (default: 1)
+AI_SEED=1 

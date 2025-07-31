@@ -1,0 +1,139 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Feedback Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .loading { background-color: #fef3c7; color: #92400e; }
+        .success { background-color: #d1fae5; color: #065f46; }
+        .error { background-color: #fee2e2; color: #991b1b; }
+        .content { background-color: #f9fafb; padding: 20px; border-radius: 5px; margin: 10px 0; }
+        button { padding: 10px 20px; background-color: #3b82f6; color: white; border: none; border-radius: 5px; cursor: pointer; }
+        button:disabled { background-color: #9ca3af; cursor: not-allowed; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>AI Feedback Test</h1>
+        <p>This page tests the AI feedback endpoint to ensure it's working correctly.</p>
+        
+        <button id="testBtn" onclick="testAIFeedback()">Test AI Feedback</button>
+        
+        <div id="status" class="status" style="display: none;"></div>
+        <div id="content" class="content" style="display: none;"></div>
+    </div>
+
+    <script>
+        async function testAIFeedback() {
+            const testBtn = document.getElementById('testBtn');
+            const statusDiv = document.getElementById('status');
+            const contentDiv = document.getElementById('content');
+            
+            // Disable button and show loading
+            testBtn.disabled = true;
+            testBtn.textContent = 'Testing...';
+            statusDiv.style.display = 'block';
+            statusDiv.className = 'status loading';
+            statusDiv.textContent = 'Connecting to server...';
+            contentDiv.style.display = 'none';
+            
+            try {
+                // Use the test endpoint that doesn't require authentication
+                const url = `http://localhost:8000/test-ai-feedback`;
+                const headers = {
+                    'Content-Type': 'application/json'
+                };
+
+                const response = await fetch(url, {
+                    method: 'GET',
+                    headers
+                });
+
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+
+                statusDiv.textContent = 'Receiving streaming response...';
+                
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+                let accumulatedContent = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop() || '';
+
+                    for (const line of lines) {
+                        if (line.trim() === '') continue;
+                        
+                        // Handle Server-Sent Events format
+                        if (line.startsWith('data: ')) {
+                            const data = line.substring(6); // Remove 'data: ' prefix
+                            if (data.trim() === '') continue;
+                            
+                            try {
+                                // Parse the JSON data
+                                const jsonData = JSON.parse(data);
+                                
+                                if (jsonData.type === 'content') {
+                                    accumulatedContent += jsonData.content;
+                                    // Convert accumulated markdown to HTML
+                                    const htmlContent = marked.parse(accumulatedContent);
+                                    // Sanitize HTML
+                                    const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                                    contentDiv.innerHTML = sanitizedHtml;
+                                    contentDiv.style.display = 'block';
+                                } else if (jsonData.type === 'progress') {
+                                    statusDiv.textContent = jsonData.content;
+                                } else if (jsonData.type === 'error') {
+                                    throw new Error(jsonData.content);
+                                } else if (jsonData.type === 'complete') {
+                                    // Stream completed
+                                    break;
+                                }
+                            } catch (e) {
+                                if (e.message && e.message !== 'Unexpected end of JSON input') {
+                                    throw e; // Re-throw actual errors
+                                }
+                                // Ignore JSON parsing errors for incomplete chunks
+                            }
+                        } else {
+                            // Handle plain text (fallback)
+                            accumulatedContent += line;
+                            const htmlContent = marked.parse(accumulatedContent);
+                            const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                            contentDiv.innerHTML = sanitizedHtml;
+                            contentDiv.style.display = 'block';
+                        }
+                    }
+                }
+
+                statusDiv.className = 'status success';
+                statusDiv.textContent = 'Test completed successfully!';
+
+            } catch (error) {
+                console.error('Test failed:', error);
+                statusDiv.className = 'status error';
+                statusDiv.textContent = `Error: ${error.message}`;
+                contentDiv.style.display = 'block';
+                contentDiv.innerHTML = `<p style="color: red;">Test failed: ${error.message}</p>`;
+            } finally {
+                // Re-enable button
+                testBtn.disabled = false;
+                testBtn.textContent = 'Test AI Feedback';
+            }
+        }
+    </script>
+</body>
+</html> 
