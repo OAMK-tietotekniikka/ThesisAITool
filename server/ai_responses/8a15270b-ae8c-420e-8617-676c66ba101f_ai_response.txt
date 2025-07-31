@@ -1,1 +1,0 @@
-Error: AI service error: 500: An error occurred while requesting OpenRouter

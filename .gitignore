@@ -175,6 +175,7 @@ pyrightconfig.json
 
 # End of https://www.toptal.com/developers/gitignore/api/python
 
-# This project's development directories
-references/
-thesis_uploads
+# This project's development directories and users' directories
+server/references/
+server/thesis_uploads/
+server/ai_responses/
