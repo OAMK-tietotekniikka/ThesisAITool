@@ -214,6 +214,7 @@ def check_student(user: User):
     if user.role != "student":
         raise HTTPException(status_code=403, detail="Student privileges required")
 
+
 # Function to detect file format and extract text
 def extract_text_from_file(file_path: str) -> str:
     file_ext = os.path.splitext(file_path)[1].lower()
@@ -623,126 +624,9 @@ class UnifiedAIModel:
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_strengths_stream(self, file_path: str, provider: AIProvider = None, 
+    async def grade_formatting_style(self, file_path: str, provider: AIProvider = None, 
                                    model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream strengths analysis using the specified AI provider"""
-        if provider is None:
-            provider = AIProvider(config.get_active_provider())
-            
-        try:
-            thesis_content = extract_text_from_file(file_path)
-        except Exception as e:
-            print(f"Error reading thesis file: {str(e)}")
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
-            return
-        
-        prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of STRENGTHS AND POSITIVE ASPECTS.
-        
-        Thesis Content:
-        {thesis_content}
-        
-        Please identify and evaluate the following strengths:
-        1. Strong research methodology and design
-        2. Clear and well-defined objectives
-        3. Comprehensive literature review
-        4. Robust data analysis
-        5. Practical relevance and impact
-        6. Quality of writing and presentation
-        7. Innovation and contribution to the field
-        
-        Provide specific examples from the thesis to support your analysis.
-        
-        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
-        """
-        
-        messages = [{"role": "user", "content": prompt}]
-        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
-        
-        async for chunk in self.make_streaming_request(provider, messages, model):
-            yield chunk
-
-    async def grade_improvements_stream(self, file_path: str, provider: AIProvider = None, 
-                                      model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream improvements analysis using the specified AI provider"""
-        if provider is None:
-            provider = AIProvider(config.get_active_provider())
-            
-        try:
-            thesis_content = extract_text_from_file(file_path)
-        except Exception as e:
-            print(f"Error reading thesis file: {str(e)}")
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
-            return
-        
-        prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of AREAS FOR IMPROVEMENT.
-        
-        Thesis Content:
-        {thesis_content}
-        
-        Please identify and evaluate the following areas for improvement:
-        1. Research methodology limitations
-        2. Data collection and analysis issues
-        3. Literature review gaps
-        4. Theoretical framework weaknesses
-        5. Writing and presentation issues
-        6. Structure and organization problems
-        7. Practical relevance limitations
-        
-        Provide specific recommendations with examples from the thesis.
-        
-        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
-        """
-        
-        messages = [{"role": "user", "content": prompt}]
-        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
-        
-        async for chunk in self.make_streaming_request(provider, messages, model):
-            yield chunk
-
-    async def grade_methodology_stream(self, file_path: str, provider: AIProvider = None, 
-                                     model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream methodology analysis using the specified AI provider"""
-        if provider is None:
-            provider = AIProvider(config.get_active_provider())
-            
-        try:
-            thesis_content = extract_text_from_file(file_path)
-        except Exception as e:
-            print(f"Error reading thesis file: {str(e)}")
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
-            return
-        
-        prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of RESEARCH METHODOLOGY.
-        
-        Thesis Content:
-        {thesis_content}
-        
-        Please evaluate the research methodology based on:
-        1. Research design appropriateness
-        2. Data collection methods
-        3. Sample selection and size
-        4. Data analysis techniques
-        5. Validity and reliability
-        6. Ethical considerations
-        7. Methodological limitations
-        
-        Provide specific examples from the thesis to support your analysis.
-        
-        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
-        """
-        
-        messages = [{"role": "user", "content": prompt}]
-        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
-        
-        async for chunk in self.make_streaming_request(provider, messages, model):
-            yield chunk
-
-    async def grade_references_stream(self, file_path: str, provider: AIProvider = None, 
-                                    model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream references analysis using the specified AI provider"""
+        """Stream formatting style analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -753,33 +637,28 @@ class UnifiedAIModel:
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
             return
 
-        guidelines = ''
         with open('oamk_ref_guidelines.txt', 'r', encoding='utf8') as f:
             guidelines = f.read()
-        
+
         prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of REFERENCE FORMATTING (Harvard style).
+        Analyze the following thesis content and provide detailed analysis of FORMATTING STYLE.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the references based on:
-        1. In-text citation formatting (Harvard style)
-        2. Bibliography/reference list formatting
-        3. Consistency in citation style
-        4. Completeness of reference information
-        5. Accuracy of citations
-        6. Quality and relevance of sources
-        7. Proper attribution of ideas
+        WHAT to detect:
+        - Detect incorrect reference style, for example number references, and suggest referecing to be used. You MUST indicate where the problem is (page number or chapter).
+        - Detect incorrect reference style of tables and figures.
+        - Detect incorrect formatting of citations and references.
 
-        Provide specific examples of correct and incorrect citations from the thesis.
-
-        IMPORTANT 1: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
-
-        IMPORTANT 2: Following these guidelines:
+        STRICTLY follow these guidelines:
         [Start of guidelines]
         {guidelines}.
         [end of guidelines]
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
         
         messages = [{"role": "user", "content": prompt}]
@@ -788,8 +667,52 @@ class UnifiedAIModel:
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_theoretical_foundation_stream(self, file_path: str, provider: AIProvider = None, 
-                                               model: Optional[str] = None) -> AsyncGenerator[str, None]:
+    async def grade_purpose_objectives(self, file_path: str, provider: AIProvider = None, 
+                                     model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream purpose and objectives analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of PURPOSE AND OBJECTIVES.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the purpose and objectives strictly following this grading scale:
+        
+        Excellent (5): Purposes and objectives are well-grounded in theory and practice, and are directed toward the application of professional development results.
+        
+        Good (4-3): Purposes and objectives are directed toward the development of the professional field.
+        
+        Satisfactory (2-1): The thesis has a basic objective.
+        
+        Fail (0)/Unfinished: Objectives are vague or not in accordance with the approved plan.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_theoretical_foundation(self, file_path: str, provider: AIProvider = None, 
+                                         model: Optional[str] = None) -> AsyncGenerator[str, None]:
         """Stream theoretical foundation analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
@@ -807,16 +730,21 @@ class UnifiedAIModel:
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the theoretical foundation based on:
-        1. Depth and breadth of theoretical framework
-        2. Appropriate use of relevant theories and concepts
-        3. Integration of theoretical and practical elements
-        4. Critical analysis of existing literature
-        5. Theoretical contribution to the field
-        6. Literature review quality
-        7. Conceptual framework development
+        Please evaluate the theoretical foundation strictly following this grading scale:
         
-        Provide specific examples from the thesis to support your analysis.
+        Excellent (5): The theoretical foundation conveys the author's own, critical and creative thinking. It is carefully considered, topical and purposeful in terms of the nature of the work. A sufficient amount of key scientific/artistic research and specialist knowledge has been used for the theoretical foundation.
+        
+        Good (4-3): The thesis has a theoretical foundation and is based on versatile industry sources.
+        
+        Satisfactory (2-1): The thesis has a theoretical foundation and is based on industry sources.
+        
+        Fail (0)/Unfinished: The theoretical foundation is noticeably limited and selected uncritically.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
         
         IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
@@ -827,9 +755,53 @@ class UnifiedAIModel:
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_structure_stream(self, file_path: str, provider: AIProvider = None, 
+    async def grade_professional_connection(self, file_path: str, provider: AIProvider = None, 
+                                          model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream professional connection analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of CONNECTION OF SUBJECT TO PROFESSIONAL FIELD AND EXPERTISE.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the connection to professional field and expertise strictly following this grading scale:
+        
+        Excellent (5): The subject has a well-argued connection to the professional field and it plays an important role in developing the student's expertise. The subject is valuable for practical activity and important for working life and its development. The subject is of current interest, new, creative, demanding.
+        
+        Good (4-3): The subject is clear connection to the professional field and it is related to the student's professional development. The subject is valuable and well-reasoned from a worklife perspective. The subject is of current interest and typical of the field.
+        
+        Satisfactory (2-1): The subject is related to the development of the industry and the student's professional growth. The subject is useful for the working life/client. The subject is ordinary.
+        
+        Fail (0)/Unfinished: The subject has no connection to the professional field.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_development_task(self, file_path: str, provider: AIProvider = None, 
                                    model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream structure analysis using the specified AI provider"""
+        """Stream development task analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -841,21 +813,26 @@ class UnifiedAIModel:
             return
         
         prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of STRUCTURE AND ORGANIZATION.
+        Analyze the following thesis content and provide detailed analysis of DEVELOPMENT/RESEARCH TASK AND ITS DEFINITION.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the structure and organization based on:
-        1. Logical flow and coherence
-        2. Chapter organization and sequencing
-        3. Introduction and conclusion quality
-        4. Transitions between sections
-        5. Headings and subheadings clarity
-        6. Overall document structure
-        7. Information hierarchy and readability
+        Please evaluate the development/research task and its definition strictly following this grading scale:
         
-        Provide specific examples from the thesis to support your analysis.
+        Excellent (5): The development/research task and its definition are described clearly and justified.
+        
+        Good (4-3): The development/research task and its definition are well-argued.
+        
+        Satisfactory (2-1): The development/research task is understood.
+        
+        Fail (0)/Unfinished: The development/research task has not been defined.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
         
         IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
@@ -866,9 +843,9 @@ class UnifiedAIModel:
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_writing_quality_stream(self, file_path: str, provider: AIProvider = None, 
-                                         model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream writing quality analysis using the specified AI provider"""
+    async def grade_conclusions_proposals(self, file_path: str, provider: AIProvider = None, 
+                                        model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream conclusions and proposals analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -880,21 +857,26 @@ class UnifiedAIModel:
             return
         
         prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of WRITING QUALITY AND CLARITY.
+        Analyze the following thesis content and provide detailed analysis of CONCLUSIONS/DEVELOPMENT PROPOSALS.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the writing quality based on:
-        1. Grammar and syntax accuracy
-        2. Clarity and readability
-        3. Academic writing style
-        4. Sentence structure and flow
-        5. Vocabulary and terminology use
-        6. Conciseness and precision
-        7. Professional presentation
+        Please evaluate the conclusions/development proposals strictly following this grading scale:
         
-        Provide specific examples from the thesis to support your analysis.
+        Excellent (5): Conclusions/development proposals reflect the results themselves compared to the research data and expertise.
+        
+        Good (4-3): Conclusions/development proposals are normal and appropriate.
+        
+        Satisfactory (2-1): Basic conclusions/recommendations are given.
+        
+        Fail (0)/Unfinished: No conclusions/recommendations.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
         
         IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
@@ -905,9 +887,9 @@ class UnifiedAIModel:
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_practical_relevance_stream(self, file_path: str, provider: AIProvider = None, 
-                                             model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream practical relevance analysis using the specified AI provider"""
+    async def grade_material_methodology(self, file_path: str, provider: AIProvider = None, 
+                                       model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream material and methodology analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -919,21 +901,26 @@ class UnifiedAIModel:
             return
         
         prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of PRACTICAL RELEVANCE.
+        Analyze the following thesis content and provide detailed analysis of MATERIAL AND METHODOLOGICAL CHOICES.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the practical relevance based on:
-        1. Real-world applicability
-        2. Industry impact and value
-        3. Problem-solving contribution
-        4. Implementation feasibility
-        5. Stakeholder benefits
-        6. Innovation and advancement
-        7. Economic and social impact
+        Please evaluate the material and methodological choices strictly following this grading scale:
         
-        Provide specific examples from the thesis to support your analysis.
+        Excellent (5): The material is diverse from the viewpoint of the objective of the work. The acquisition of material and work methods are well-founded and their use is well-controlled.
+        
+        Good (4-3): The material is comprehensive. The acquisition of material and work methods are well-founded.
+        
+        Satisfactory (2-1): The material is sufficient. The acquisition of material and work methods are purposeful, and they have been described.
+        
+        Fail (0)/Unfinished: The material is insufficient. The acquisition of material and work methods have not been described.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
         
         IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
@@ -944,48 +931,9 @@ class UnifiedAIModel:
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_objectives_stream(self, file_path: str, provider: AIProvider = None, 
-                                   model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream objectives analysis using the specified AI provider"""
-        if provider is None:
-            provider = AIProvider(config.get_active_provider())
-            
-        try:
-            thesis_content = extract_text_from_file(file_path)
-        except Exception as e:
-            print(f"Error reading thesis file: {str(e)}")
-            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
-            return
-        
-        prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of PURPOSE AND OBJECTIVES.
-        
-        Thesis Content:
-        {thesis_content}
-        
-        Please evaluate the objectives based on:
-        1. Clarity and specificity of research objectives
-        2. Alignment between objectives and methodology
-        3. Feasibility and scope of the research
-        4. Contribution to the field
-        5. Practical relevance
-        6. Measurability of objectives
-        7. Logical progression of goals
-        
-        Provide specific examples from the thesis to support your analysis.
-        
-        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
-        """
-        
-        messages = [{"role": "user", "content": prompt}]
-        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
-        
-        async for chunk in self.make_streaming_request(provider, messages, model):
-            yield chunk
-
-    async def grade_conclusions_stream(self, file_path: str, provider: AIProvider = None, 
+    async def grade_treatment_analysis(self, file_path: str, provider: AIProvider = None, 
                                      model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream conclusions analysis using the specified AI provider"""
+        """Stream treatment and analysis analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -997,21 +945,70 @@ class UnifiedAIModel:
             return
         
         prompt = f"""
-        Analyze the following thesis content and provide detailed analysis of CONCLUSIONS AND RECOMMENDATIONS.
+        Analyze the following thesis content and provide detailed analysis of TREATMENT AND ANALYSIS OF MATERIAL.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the conclusions and recommendations based on:
-        1. Strength of conclusions drawn from findings
-        2. Quality and feasibility of recommendations
-        3. Alignment with research objectives
-        4. Practical implementation value
-        5. Future research directions
-        6. Limitations acknowledgment
-        7. Overall impact and contribution
+        Please evaluate the treatment and analysis of material strictly following this grading scale:
         
-        Provide specific examples from the thesis to support your analysis.
+        Excellent (5): The material is treated in a controlled manner and analysis is proficient. It shows a creative and systematic approach.
+        
+        Good (4-3): The treatment and analysis of material illustrates the author's familiarity with the subject.
+        
+        Satisfactory (2-1): The treatment and analysis of material is adequate.
+        
+        Fail (0)/Unfinished: The treatment and analysis of material is inconsistent and inconsistent.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_results_product(self, file_path: str, provider: AIProvider = None, 
+                                  model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream results and product analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of RESULTS/PRODUCT.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the results/product strictly following this grading scale:
+        
+        Excellent (5): The results/product are new creations and original, the application of results has been proven and significance assessed.
+        
+        Good (4-3): The objectives set for the work have been justified. The achieved results/product can be applied to the development of the industry.
+        
+        Satisfactory (2-1): The objectives set for the work have been reached.
+        
+        Failed (0)/Unfinished: The objectives set for the work have not been reached. The results have been wrongly interpreted.
+        
+        Please provide:
+        1. A grade (0-5) based on the above scale
+        2. Detailed justification for the grade
+        3. Specific examples from the thesis to support your evaluation
+        4. Recommendations for improvement if applicable
         
         IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
@@ -1157,38 +1154,43 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
         # Step 1: Thesis Analysis
         print("🔄 Starting thesis analysis...")
         buffer = ""
-        async for chunk in ai_model.analyze_thesis_stream(thesis['filepath'], custom_instructions, predefined_questions, provider, model):
-            # Parse the chunk to extract structured data
-            if chunk.startswith('data: '):
-                try:
-                    data = json.loads(chunk[6:])
-                    if data.get('type') == 'content':
-                        # Buffer the content
-                        buffer += data.get('content', '')
-                        
-                        # Send meaningful chunks (sentences, paragraphs, or after certain length)
-                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                            buffer = ""
-                            await asyncio.sleep(0.1)  # Small delay for better UX
-                    elif data.get('type') == 'error':
+        try:
+            async for chunk in ai_model.analyze_thesis_stream(thesis['filepath'], custom_instructions, predefined_questions, provider, model):
+                # Parse the chunk to extract structured data
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            # Buffer the content
+                            buffer += data.get('content', '')
+                            
+                            # Send meaningful chunks (sentences, paragraphs, or after certain length)
+                            if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                buffer = ""
+                                await asyncio.sleep(0.1)  # Small delay for better UX
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            # Send any remaining buffer
+                            if buffer:
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            break
+                    except json.JSONDecodeError:
+                        # Handle legacy format
                         yield chunk
-                        return
-                    elif data.get('type') == 'complete':
-                        # Send any remaining buffer
-                        if buffer:
-                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                        break
-                except json.JSONDecodeError:
-                    # Handle legacy format
-                    yield chunk
-            else:
-                # Handle non-JSON chunks
-                buffer += chunk
-                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                    buffer = ""
-                    await asyncio.sleep(0.1)
+                else:
+                    # Handle non-JSON chunks
+                    buffer += chunk
+                    if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                        yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                        buffer = ""
+                        await asyncio.sleep(0.1)
+        except (asyncio.CancelledError, GeneratorExit):
+            print(f"🔴 [STOP STREAM] Client disconnected during thesis analysis for thesis_id: {thesis_id}")
+            print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+            return
         
         # Send any remaining buffer from analysis
         if buffer:
@@ -1200,32 +1202,37 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
         # Step 2: Objective Grading
         print("🔄 Starting objective grading...")
         buffer = ""
-        async for chunk in ai_model.grade_objective_stream(thesis['filepath'], provider, model):
-            if chunk.startswith('data: '):
-                try:
-                    data = json.loads(chunk[6:])
-                    if data.get('type') == 'content':
-                        buffer += data.get('content', '')
-                        
-                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                            buffer = ""
-                            await asyncio.sleep(0.1)
-                    elif data.get('type') == 'error':
+        try:
+            async for chunk in ai_model.grade_purpose_objectives(thesis['filepath'], provider, model):
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            buffer += data.get('content', '')
+                            
+                            if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                buffer = ""
+                                await asyncio.sleep(0.1)
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            if buffer:
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            break
+                    except json.JSONDecodeError:
                         yield chunk
-                        return
-                    elif data.get('type') == 'complete':
-                        if buffer:
-                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                        break
-                except json.JSONDecodeError:
-                    yield chunk
-            else:
-                buffer += chunk
-                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                    buffer = ""
-                    await asyncio.sleep(0.1)
+                else:
+                    buffer += chunk
+                    if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                        yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                        buffer = ""
+                        await asyncio.sleep(0.1)
+        except (asyncio.CancelledError, GeneratorExit):
+            print(f"🔴 [STOP STREAM] Client disconnected during objective grading for thesis_id: {thesis_id}")
+            print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+            return
         
         # Send any remaining buffer from objective grading
         if buffer:
@@ -1237,32 +1244,37 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
         # Step 3: Theoretical Foundation Grading
         print("🔄 Starting theoretical foundation grading...")
         buffer = ""
-        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis['filepath'], provider, model):
-            if chunk.startswith('data: '):
-                try:
-                    data = json.loads(chunk[6:])
-                    if data.get('type') == 'content':
-                        buffer += data.get('content', '')
-                        
-                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                            buffer = ""
-                            await asyncio.sleep(0.1)
-                    elif data.get('type') == 'error':
+        try:
+            async for chunk in ai_model.grade_theoretical_foundation(thesis['filepath'], provider, model):
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            buffer += data.get('content', '')
+                            
+                            if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                buffer = ""
+                                await asyncio.sleep(0.1)
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            if buffer:
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            break
+                    except json.JSONDecodeError:
                         yield chunk
-                        return
-                    elif data.get('type') == 'complete':
-                        if buffer:
-                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                        break
-                except json.JSONDecodeError:
-                    yield chunk
-            else:
-                buffer += chunk
-                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                    buffer = ""
-                    await asyncio.sleep(0.1)
+                else:
+                    buffer += chunk
+                    if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                        yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                        buffer = ""
+                        await asyncio.sleep(0.1)
+        except (asyncio.CancelledError, GeneratorExit):
+            print(f"🔴 [STOP STREAM] Client disconnected during theoretical foundation grading for thesis_id: {thesis_id}")
+            print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+            return
         
         # Send any remaining buffer from theoretical foundation grading
         if buffer:
@@ -1272,6 +1284,10 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': 3, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             
+    except (asyncio.CancelledError, GeneratorExit):
+        print(f"🔴 [STOP STREAM] Client disconnected during streaming for thesis_id: {thesis_id}")
+        print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+        return
     except Exception as e:
         print("❌ Full traceback:\n", traceback.format_exc())
         print(f"❌ Error in stream_ai_feedback: {str(e)}")
@@ -1796,73 +1812,92 @@ async def stream_ai_feedback_enhanced(thesis_id: str, custom_instructions: str, 
         # Step 1: Thesis Analysis
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Analyzing thesis content...', 'step': 1, 'total': 3})}\n\n"
         
-        async for chunk in ai_model.analyze_thesis_stream(thesis['filepath'], custom_instructions, predefined_questions, provider, model):
-            if chunk.startswith('data: '):
-                try:
-                    data = json.loads(chunk[6:])
-                    if data.get('type') == 'content':
+        try:
+            async for chunk in ai_model.analyze_thesis_stream(thesis['filepath'], custom_instructions, predefined_questions, provider, model):
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            yield chunk
+                            await asyncio.sleep(pacing_delay)  # Apply pacing
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            break
+                    except json.JSONDecodeError:
                         yield chunk
-                        await asyncio.sleep(pacing_delay)  # Apply pacing
-                    elif data.get('type') == 'error':
-                        yield chunk
-                        return
-                    elif data.get('type') == 'complete':
-                        break
-                except json.JSONDecodeError:
+                else:
                     yield chunk
-            else:
-                yield chunk
-                await asyncio.sleep(pacing_delay)  # Apply pacing to legacy format
+                    await asyncio.sleep(pacing_delay)  # Apply pacing to legacy format
+        except (asyncio.CancelledError, GeneratorExit):
+            print(f"🔴 [STOP STREAM] Client disconnected during thesis analysis for thesis_id: {thesis_id}")
+            print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+            return
         
         # Step 2: Objective Grading
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Grading objectives...', 'step': 2, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING PURPOSES AND OBJECTIVES'})}\n\n"
         
-        async for chunk in ai_model.grade_objective_stream(thesis['filepath'], provider, model):
-            if chunk.startswith('data: '):
-                try:
-                    data = json.loads(chunk[6:])
-                    if data.get('type') == 'content':
+        try:
+            async for chunk in ai_model.grade_purpose_objectives(thesis['filepath'], provider, model):
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            yield chunk
+                            await asyncio.sleep(pacing_delay)
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            break
+                    except json.JSONDecodeError:
                         yield chunk
                         await asyncio.sleep(pacing_delay)
-                    elif data.get('type') == 'error':
-                        yield chunk
-                        return
-                    elif data.get('type') == 'complete':
-                        break
-                except json.JSONDecodeError:
+                else:
                     yield chunk
                     await asyncio.sleep(pacing_delay)
-            else:
-                yield chunk
-                await asyncio.sleep(pacing_delay)
+        except (asyncio.CancelledError, GeneratorExit):
+            print(f"🔴 [STOP STREAM] Client disconnected during objective grading for thesis_id: {thesis_id}")
+            print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+            return
         
         # Step 3: Theoretical Foundation Grading
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Grading theoretical foundation...', 'step': 3, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING THEORETICAL FOUNDATION'})}\n\n"
         
-        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis['filepath'], provider, model):
-            if chunk.startswith('data: '):
-                try:
-                    data = json.loads(chunk[6:])
-                    if data.get('type') == 'content':
+        try:
+            async for chunk in ai_model.grade_theoretical_foundation(thesis['filepath'], provider, model):
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            yield chunk
+                            await asyncio.sleep(pacing_delay)
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            break
+                    except json.JSONDecodeError:
                         yield chunk
                         await asyncio.sleep(pacing_delay)
-                    elif data.get('type') == 'error':
-                        yield chunk
-                        return
-                    elif data.get('type') == 'complete':
-                        break
-                except json.JSONDecodeError:
+                else:
                     yield chunk
                     await asyncio.sleep(pacing_delay)
-            else:
-                yield chunk
-                await asyncio.sleep(pacing_delay)
+        except (asyncio.CancelledError, GeneratorExit):
+            print(f"🔴 [STOP STREAM] Client disconnected during theoretical foundation grading for thesis_id: {thesis_id}")
+            print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+            return
         
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': 3, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             
+    except (asyncio.CancelledError, GeneratorExit):
+        print(f"🔴 [STOP STREAM] Client disconnected during streaming for thesis_id: {thesis_id}")
+        print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+        return
     except Exception as e:
         print(f"❌ Error in enhanced streaming: {str(e)}")
         yield f"data: {json.dumps({'type': 'error', 'content': f'Streaming error: {str(e)}'})}\n\n"
@@ -2008,72 +2043,65 @@ async def get_ai_feedback_options():
     return {
         "options": [
             {
-                "id": "strengths",
-                "label": "Identify strengths and positive aspects",
-                "description": "Highlight what the thesis does well",
+                "id": "formatting_style",
+                "label": "Formatting style",
+                "description": "Check formatting, structure, and presentation quality",
                 "enabled": True,
                 "default": True
             },
             {
-                "id": "improvements",
-                "label": "Areas for improvement",
-                "description": "Identify specific areas that need enhancement",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "methodology",
-                "label": "Research methodology analysis",
-                "description": "Evaluate the research design and methods used",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "references",
-                "label": "Reference formatting (Harvard style)",
-                "description": "Check citation and bibliography formatting",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "theoretical_framework",
-                "label": "Theoretical foundation",
-                "description": "Assess the theoretical framework and literature review",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "structure",
-                "label": "Structure and organization",
-                "description": "Evaluate the overall structure and flow",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "writing_quality",
-                "label": "Writing quality and clarity",
-                "description": "Assess writing style, grammar, and clarity",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "practical_relevance",
-                "label": "Practical relevance",
-                "description": "Evaluate real-world applicability and impact",
-                "enabled": True,
-                "default": True
-            },
-            {
-                "id": "objectives",
+                "id": "purpose_objectives",
                 "label": "Purpose and objectives",
-                "description": "Grade the clarity and feasibility of objectives",
+                "description": "Evaluate clarity and grounding of purposes and objectives",
                 "enabled": True,
                 "default": True
             },
             {
-                "id": "conclusions",
-                "label": "Conclusions and recommendations",
-                "description": "Assess the quality of conclusions and recommendations",
+                "id": "theoretical_foundation",
+                "label": "Theoretical foundation",
+                "description": "Assess theoretical framework and critical thinking",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "professional_connection",
+                "label": "Connection of subject to professional field and expertise",
+                "description": "Evaluate relevance to professional development and working life",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "development_task",
+                "label": "Development/research task and its definition",
+                "description": "Assess clarity and justification of research/development tasks",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "conclusions_proposals",
+                "label": "Conclusions/development proposals",
+                "description": "Evaluate quality of conclusions and development proposals",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "material_methodology",
+                "label": "Material and methodological choices",
+                "description": "Assess diversity and foundation of materials and methods",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "treatment_analysis",
+                "label": "Treatment and analysis of material",
+                "description": "Evaluate controlled treatment and proficient analysis",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "results_product",
+                "label": "Results/Product",
+                "description": "Assess originality and application of results",
                 "enabled": True,
                 "default": True
             }
@@ -2136,30 +2164,28 @@ async def stream_ai_feedback_with_grades(thesis_id: str, selected_options: List[
         
         # Map of option IDs to grade functions
         grade_functions = {
-            'strengths': ai_model.grade_strengths_stream,
-            'improvements': ai_model.grade_improvements_stream,
-            'methodology': ai_model.grade_methodology_stream,
-            'references': ai_model.grade_references_stream,
-            'theoretical_framework': ai_model.grade_theoretical_foundation_stream,
-            'structure': ai_model.grade_structure_stream,
-            'writing_quality': ai_model.grade_writing_quality_stream,
-            'practical_relevance': ai_model.grade_practical_relevance_stream,
-            'objectives': ai_model.grade_objectives_stream,
-            'conclusions': ai_model.grade_conclusions_stream
+            'formatting_style': ai_model.grade_formatting_style,
+            'purpose_objectives': ai_model.grade_purpose_objectives,
+            'theoretical_foundation': ai_model.grade_theoretical_foundation,
+            'professional_connection': ai_model.grade_professional_connection,
+            'development_task': ai_model.grade_development_task,
+            'conclusions_proposals': ai_model.grade_conclusions_proposals,
+            'material_methodology': ai_model.grade_material_methodology,
+            'treatment_analysis': ai_model.grade_treatment_analysis,
+            'results_product': ai_model.grade_results_product
         }
         
         # Option titles for section headers
         option_titles = {
-            'strengths': 'STRENGTHS AND POSITIVE ASPECTS',
-            'improvements': 'AREAS FOR IMPROVEMENT',
-            'methodology': 'RESEARCH METHODOLOGY ANALYSIS',
-            'references': 'REFERENCE FORMATTING (Harvard style)',
-            'theoretical_framework': 'THEORETICAL FOUNDATION',
-            'structure': 'STRUCTURE AND ORGANIZATION',
-            'writing_quality': 'WRITING QUALITY AND CLARITY',
-            'practical_relevance': 'PRACTICAL RELEVANCE',
-            'objectives': 'PURPOSE AND OBJECTIVES',
-            'conclusions': 'CONCLUSIONS AND RECOMMENDATIONS'
+            'formatting_style': 'FORMATTING STYLE',
+            'purpose_objectives': 'PURPOSE AND OBJECTIVES',
+            'theoretical_foundation': 'THEORETICAL FOUNDATION',
+            'professional_connection': 'CONNECTION OF SUBJECT TO PROFESSIONAL FIELD AND EXPERTISE',
+            'development_task': 'DEVELOPMENT/RESEARCH TASK AND ITS DEFINITION',
+            'conclusions_proposals': 'CONCLUSIONS/DEVELOPMENT PROPOSALS',
+            'material_methodology': 'MATERIAL AND METHODOLOGICAL CHOICES',
+            'treatment_analysis': 'TREATMENT AND ANALYSIS OF MATERIAL',
+            'results_product': 'RESULTS/PRODUCT'
         }
         
         total_options = len(selected_options)
@@ -2182,45 +2208,50 @@ async def stream_ai_feedback_with_grades(thesis_id: str, selected_options: List[
             
             # Stream the grade analysis
             buffer = ""
-            async for chunk in grade_func(thesis['filepath'], provider, model):
-                if chunk.startswith('data: '):
-                    try:
-                        data = json.loads(chunk[6:])
-                        if data.get('type') == 'content':
-                            buffer += data.get('content', '')
-                            
-                            if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                                buffer = ""
-                                await asyncio.sleep(0.1)
-                        elif data.get('type') == 'error':
+            try:
+                async for chunk in grade_func(thesis['filepath'], provider, model):
+                    if chunk.startswith('data: '):
+                        try:
+                            data = json.loads(chunk[6:])
+                            if data.get('type') == 'content':
+                                buffer += data.get('content', '')
+                                
+                                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                    buffer = ""
+                                    await asyncio.sleep(0.1)
+                            elif data.get('type') == 'error':
+                                yield chunk
+                                return
+                            elif data.get('type') == 'complete':
+                                if buffer:
+                                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                break
+                        except json.JSONDecodeError:
                             yield chunk
-                            return
-                        elif data.get('type') == 'complete':
-                            if buffer:
-                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                            break
-                    except json.JSONDecodeError:
-                        yield chunk
-                else:
-                    buffer += chunk
-                    if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
-                        yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-                        buffer = ""
-                        await asyncio.sleep(0.1)
+                    else:
+                        buffer += chunk
+                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            buffer = ""
+                            await asyncio.sleep(0.1)
+            except (asyncio.CancelledError, GeneratorExit):
+                print(f"🔴 [STOP STREAM] Client disconnected during {option} analysis for thesis_id: {thesis_id}")
+                print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+                return
             
             # Send any remaining buffer
             if buffer:
                 yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
-            
-            # Add spacing between sections
-            if i < total_options:
-                yield f"data: {json.dumps({'type': 'content', 'content': '\n\n---\n\n'})}\n\n"
         
         print("✅ AI feedback with grades streaming completed successfully")
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': total_options, 'total': total_options})}\n\n"
         yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             
+    except (asyncio.CancelledError, GeneratorExit):
+        print(f"🔴 [STOP STREAM] Client disconnected during streaming for thesis_id: {thesis_id}")
+        print(f"🔴 [STOP STREAM] Stopped AI model to save resources.")  # AI models auto-stop on disconnects
+        return
     except Exception as e:
         print("❌ Full traceback:\n", traceback.format_exc())
         print(f"❌ Error in stream_ai_feedback_with_grades: {str(e)}")
@@ -2231,7 +2262,7 @@ if __name__ == "__main__":
     import uvicorn
     
     # Print configuration status on startup
-    print("🚀 Starting ThesisAI Server...")
+    print("🚀 Starting ThesisAI Tool...")
     print(f"📁 Upload directory: {config.UPLOAD_DIR}")
     print(f"📁 Feedback directory: {config.FEEDBACK_DIR}")
     print(f"📁 AI responses directory: {config.AI_RESPONSES_DIR}")

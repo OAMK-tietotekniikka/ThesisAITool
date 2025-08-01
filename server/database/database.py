@@ -1,6 +1,7 @@
 import sqlite3
 import os
 import json
+import uuid
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from contextlib import contextmanager
@@ -124,6 +125,10 @@ class UserRepository:
     
     def create_user(self, user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new user"""
+        # Generate ID if not provided
+        if 'id' not in user_data:
+            user_data['id'] = str(uuid.uuid4())
+        
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -300,6 +305,71 @@ class UserRepository:
             cursor.execute('UPDATE users SET supervisor_id = ? WHERE id = ?', (supervisor_username, student_id))
             conn.commit()
             return True
+    
+    def get_user_by_email(self, email: str) -> Optional[Dict[str, Any]]:
+        """Get user by email"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE email = ?', (email,))
+            row = cursor.fetchone()
+            if row:
+                user_dict = self.db.dict_from_row(row)
+                user_dict['assigned_students'] = self.db.list_from_json(user_dict['assigned_students'])
+                return user_dict
+            return None
+    
+    def get_assigned_students(self, supervisor_id: str) -> List[Dict[str, Any]]:
+        """Get students assigned to a supervisor"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM users WHERE supervisor_id = ? AND role = "student" ORDER BY full_name', (supervisor_id,))
+            rows = cursor.fetchall()
+            students = []
+            for row in rows:
+                user_dict = self.db.dict_from_row(row)
+                user_dict['assigned_students'] = self.db.list_from_json(user_dict['assigned_students'])
+                students.append(user_dict)
+            return students
+    
+    def update_user_supervisor(self, student_id: str, supervisor_id: str) -> bool:
+        """Update user's supervisor"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('UPDATE users SET supervisor_id = ? WHERE id = ?', (supervisor_id, student_id))
+            conn.commit()
+            return True
+    
+    def delete_user(self, username: str) -> bool:
+        """Delete a user by username"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('DELETE FROM users WHERE username = ?', (username,))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def update_user(self, username: str, update_data: dict) -> bool:
+        """Update user details"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Build update query dynamically
+            set_clauses = []
+            values = []
+            
+            for key, value in update_data.items():
+                if value is not None:  # Only update non-None values
+                    set_clauses.append(f"{key} = ?")
+                    values.append(value)
+            
+            if not set_clauses:
+                return False  # Nothing to update
+            
+            values.append(username)
+            query = f"UPDATE users SET {', '.join(set_clauses)} WHERE username = ?"
+            
+            cursor.execute(query, values)
+            conn.commit()
+            return cursor.rowcount > 0
 
 class ThesisRepository:
     """Repository for thesis operations"""
@@ -309,6 +379,10 @@ class ThesisRepository:
     
     def create_thesis(self, thesis_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create a new thesis"""
+        # Generate ID if not provided
+        if 'id' not in thesis_data:
+            thesis_data['id'] = str(uuid.uuid4())
+        
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -391,13 +465,40 @@ class ThesisRepository:
         """Add a new thesis (alias for create_thesis)"""
         return self.create_thesis(thesis_data)
     
-    def update_thesis_status(self, thesis_id: str, status: str) -> bool:
-        """Update thesis status"""
+    def update_thesis_status(self, thesis_id: str, status: str, feedback_id: str = None) -> bool:
+        """Update thesis status with optional feedback ID"""
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
-            cursor.execute('UPDATE theses SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', (status, thesis_id))
+            if feedback_id:
+                if status == "reviewed_by_ai":
+                    cursor.execute('UPDATE theses SET status = ?, ai_feedback_id = ? WHERE id = ?', 
+                                 (status, feedback_id, thesis_id))
+                elif status == "reviewed_by_supervisor":
+                    cursor.execute('UPDATE theses SET status = ?, supervisor_feedback_id = ? WHERE id = ?', 
+                                 (status, feedback_id, thesis_id))
+                else:
+                    cursor.execute('UPDATE theses SET status = ? WHERE id = ?', (status, thesis_id))
+            else:
+                cursor.execute('UPDATE theses SET status = ? WHERE id = ?', (status, thesis_id))
             conn.commit()
             return True
+    
+    def get_theses_by_student(self, student_id: str) -> List[Dict[str, Any]]:
+        """Get theses by student ID (alias for get_theses_by_student_id)"""
+        return self.get_theses_by_student_id(student_id)
+    
+    def get_theses_by_supervisor(self, supervisor_id: str) -> List[Dict[str, Any]]:
+        """Get theses assigned to a supervisor by supervisor ID"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT t.* FROM theses t
+                JOIN users u ON t.student_id = u.id
+                WHERE u.supervisor_id = ?
+                ORDER BY t.upload_date DESC
+            ''', (supervisor_id,))
+            rows = cursor.fetchall()
+            return [self.db.dict_from_row(row) for row in rows]
     
     def update_thesis_ai_feedback(self, thesis_id: str, feedback_id: str) -> bool:
         """Update thesis AI feedback ID"""
@@ -423,6 +524,10 @@ class FeedbackRepository:
     
     def create_feedback(self, feedback_data: Dict[str, Any]) -> Dict[str, Any]:
         """Create new feedback"""
+        # Generate ID if not provided
+        if 'id' not in feedback_data:
+            feedback_data['id'] = str(uuid.uuid4())
+        
         with self.db.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute('''
@@ -473,6 +578,27 @@ class FeedbackRepository:
     def add_feedback(self, feedback_data: Dict[str, Any]) -> Dict[str, Any]:
         """Add new feedback (alias for create_feedback)"""
         return self.create_feedback(feedback_data)
+    
+    def get_feedback_by_reviewer(self, reviewer_id: str) -> List[Dict[str, Any]]:
+        """Get feedback by reviewer ID"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT * FROM feedback WHERE reviewer_id = ? ORDER BY created_at DESC', (reviewer_id,))
+            rows = cursor.fetchall()
+            return [self.db.dict_from_row(row) for row in rows]
+    
+    def get_feedback_by_thesis_and_reviewer(self, thesis_id: str, reviewer_type: str) -> Optional[Dict[str, Any]]:
+        """Get feedback by thesis ID and reviewer type (ai or supervisor)"""
+        with self.db.get_connection() as conn:
+            cursor = conn.cursor()
+            if reviewer_type == "ai":
+                cursor.execute('SELECT * FROM feedback WHERE thesis_id = ? AND is_ai_feedback = TRUE ORDER BY created_at DESC LIMIT 1', (thesis_id,))
+            elif reviewer_type == "supervisor":
+                cursor.execute('SELECT * FROM feedback WHERE thesis_id = ? AND is_ai_feedback = FALSE ORDER BY created_at DESC LIMIT 1', (thesis_id,))
+            else:
+                return None
+            row = cursor.fetchone()
+            return self.db.dict_from_row(row) if row else None
 
 # Global database instance
 db_manager = DatabaseManager()

@@ -4,9 +4,10 @@ A FastAPI-based server for thesis analysis and feedback with AI integration and 
 
 ## Installation
 
-1. Install dependencies:
+1. Clone the repository and install dependencies:
 ```bash
-cd server
+git clone <repository-url>
+cd ThesisAITool/server
 pip install -r requirements.txt
 ```
 
@@ -43,13 +44,13 @@ python run_server.py
 ### Option 2: Direct execution
 ```bash
 cd server
-python app.py
+python main.py
 ```
 
 ### Option 3: Using uvicorn directly
 ```bash
 cd server
-uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## Start Using the Tool with GUI
@@ -59,24 +60,61 @@ Simply navigate to the `client` directory and open `index.html` in your web brow
 
 ## Testing
 
+### **Server Testing**
+
 Run the test script to verify everything is working:
 ```bash
 cd server
 python test_server.py
 ```
 
-## API Endpoints
+### **Unit Testing**
+```bash
+# Test individual modules
+python -m pytest tests/unit/
 
-- **API Documentation**: http://localhost:8000/docs
-- **Health Check**: http://localhost:8000/me (requires authentication)
+# Test specific module
+python -m pytest tests/unit/test_auth.py
+```
 
-## Features
+### **Integration Testing**
+```bash
+# Test API endpoints
+python -m pytest tests/integration/
 
-- User authentication with JWT tokens
-- File upload and processing (PDF, DOCX, TXT)
-- AI-powered thesis analysis and grading
-- Supervisor feedback system
-- Role-based access control (student, supervisor, admin)
+# Test database operations
+python -m pytest tests/integration/test_database.py
+```
+
+## 📚 API Documentation
+
+The API documentation is available at:
+- **Swagger UI**: `http://localhost:8000/docs`
+- **ReDoc**: `http://localhost:8000/redoc`
+
+## 📋 Key Features
+
+### **Authentication System**
+- JWT-based authentication
+- Role-based access control (Student, Supervisor, Admin)
+- Secure password hashing with bcrypt
+
+### **Thesis Management**
+- Upload and store thesis documents
+- Support for PDF, DOCX, and TXT formats
+- Document preview and text extraction
+- Version control and status tracking
+
+### **AI Analysis**
+- Multi-provider AI support (OpenAI, DeepSeek, OpenRouter)
+- Streaming AI responses for real-time feedback
+- Comprehensive thesis evaluation with grading
+- Customizable analysis parameters
+
+### **User Management**
+- User registration and authentication
+- Supervisor-student assignment system
+- Role-based permissions and access control
 
 ## Default Users
 
@@ -88,23 +126,86 @@ The server comes with pre-configured test users.:
 
 Delete `thesis_ai.db` for a clean database.
 
-## File Structure
+## 📁 Project Structure
 
 ```
 ThesisAITool/
-├── server/
-│   ├── app.py                 # Main FastAPI application
-│   ├── requirements.txt       # Python dependencies
-│   ├── run_server.py          # Startup script with error handling
-│   ├── test_server.py         # Test script
-│   ├── README.md              # This file
-│   ├── thesis_uploads/        # Uploaded thesis files
-│   ├── feedback_files/        # Supervisor feedback files
-│   └── ai_responses/          # AI analysis responses
-└── client/
-    ├── index.html
-    ├── main.js
-    └── style.css
+├── client/                          # Frontend client files
+│   ├── css/                         # CSS stylesheets
+│   ├── js/                          # JavaScript files
+│   ├── components/                  # Reusable UI components
+│   ├── pages/                       # Page-specific components
+│   ├── utils/                       # Client-side utilities
+│   ├── index.html                   # Main HTML file
+│   ├── register.html                # Registration page
+│   ├── style.css                    # Main stylesheet
+│   ├── main.js                      # Main JavaScript file
+│   └── favicon.ico                  # Favicon
+│
+├── server/                          # Backend server code
+│   ├── main.py                      # Main application entry point
+│   ├── app.py                       # Legacy app file (to be removed)
+│   │
+│   ├── core/                        # Core application modules
+│   │   ├── models/                  # Data models
+│   │   │   ├── __init__.py
+│   │   │   ├── user.py             # User model
+│   │   │   ├── thesis.py           # Thesis model
+│   │   │   ├── feedback.py         # Feedback model
+│   │   │   └── ai_request.py       # AI request model
+│   │   ├── services/               # Business logic services
+│   │   ├── repositories/           # Data access layer
+│   │   └── utils/                  # Core utilities
+│   │
+│   ├── config/                     # Configuration management
+│   │   ├── __init__.py
+│   │   └── config.py               # Configuration settings
+│   │
+│   ├── database/                   # Database layer
+│   │   ├── __init__.py
+│   │   └── database.py             # Database models and repositories
+│   │
+│   ├── auth/                       # Authentication module
+│   │   ├── __init__.py
+│   │   └── auth_service.py         # Authentication services
+│   │
+│   ├── file_processing/            # File processing utilities
+│   │   ├── __init__.py
+│   │   ├── text_extractor.py       # Text extraction from files
+│   │   └── image_converter.py      # Document to image conversion
+│   │
+│   ├── ai/                         # AI services and providers
+│   │   ├── __init__.py
+│   │   ├── providers/              # AI provider implementations
+│   │   │   ├── __init__.py
+│   │   │   └── ai_provider.py      # AI provider enum
+│   │   ├── services/               # AI service implementations
+│   │   │   ├── __init__.py
+│   │   │   └── unified_ai_model.py # Unified AI model service
+│   │   └── models/                 # AI-specific models
+│   │
+│   ├── api/                        # API layer
+│   │   ├── __init__.py
+│   │   ├── routes/                 # API route definitions
+│   │   │   ├── __init__.py
+│   │   │   ├── auth_routes.py      # Authentication routes
+│   │   │   ├── thesis_routes.py    # Thesis management routes
+│   │   │   ├── ai_routes.py        # AI analysis routes
+│   │   │   └── user_routes.py      # User management routes
+│   │   └── middleware/             # API middleware
+│   │
+│   ├── static/                     # Static files
+│   ├── templates/                  # HTML templates
+│   │
+│   ├── thesis_uploads/             # Uploaded thesis files
+│   ├── feedback_files/             # Feedback files
+│   ├── ai_responses/               # AI response files
+│   └── references/                 # Reference materials
+│
+├── requirements.txt                 # Python dependencies
+├── requirements_new.txt             # Updated dependencies
+├── run_server.py                   # Server runner script
+└── README.md                       # Original README
 ```
 
 ## Troubleshooting
@@ -114,3 +215,6 @@ ThesisAITool/
 3. **File permission errors**: Ensure the server has write permissions to the directories
 4. **Port already in use**: Change the port in the startup script or kill the existing process 
 
+## 📄 License
+
+You can use this project freely. Attribution is appreciated but not required.

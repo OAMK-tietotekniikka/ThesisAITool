@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Frontend Test</title>
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+</head>
+<body>
+    <h1>Frontend Test</h1>
+    <p>Testing connection to the API...</p>
+    
+    <div id="status"></div>
+    
+    <script>
+        const API_BASE_URL = 'http://localhost:8000';
+        
+        async function testConnection() {
+            const statusDiv = document.getElementById('status');
+            
+            try {
+                // Test config status
+                const response = await axios.get(`${API_BASE_URL}/config/status`);
+                statusDiv.innerHTML = `
+                    <h2>✅ Connection Successful!</h2>
+                    <p>Server is running and responding.</p>
+                    <pre>${JSON.stringify(response.data, null, 2)}</pre>
+                `;
+            } catch (error) {
+                statusDiv.innerHTML = `
+                    <h2>❌ Connection Failed</h2>
+                    <p>Error: ${error.message}</p>
+                    <p>Make sure the server is running on port 8000.</p>
+                `;
+            }
+        }
+        
+        // Test connection when page loads
+        testConnection();
+    </script>
+</body>
+</html> 

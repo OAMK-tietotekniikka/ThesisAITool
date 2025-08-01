@@ -98,20 +98,20 @@ function toggleSidebar() {
     const content = document.getElementById('content');
     
     sidebar.classList.toggle('collapsed');
-    content.classList.toggle('expanded');
+    content.classList.toggle('ml-64');
+    content.classList.toggle('ml-16');
 }
 
-// Check if user is authenticated
+// Check authentication status
 function checkAuthStatus() {
     const token = localStorage.getItem('authToken');
-    const sidebar = document.getElementById('sidebar');
-
     if (token) {
         authToken = token;
-        sidebar.classList.remove('hidden')
         fetchCurrentUser();
     } else {
-        sidebar.classList.add('hidden')
+        // Show login section
+        document.getElementById('loginSection').classList.remove('hidden');
+        document.getElementById('dashboardSection').classList.add('hidden');
     }
 }
 
@@ -130,7 +130,7 @@ async function handleLogin(e) {
         params.append('password', password);
         params.append('grant_type', 'password');
 
-        const response = await axios.post(`${API_BASE_URL}/token`, params, {
+        const response = await axios.post(`${API_BASE_URL}/auth/token`, params, {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded'
             }
@@ -153,7 +153,7 @@ async function handleLogin(e) {
 // Fetch current user details
 async function fetchCurrentUser() {
     try {
-        const response = await axios.get(`${API_BASE_URL}/me`, {
+        const response = await axios.get(`${API_BASE_URL}/auth/me`, {
             headers: {
                 'Authorization': `Bearer ${authToken}`
             }
@@ -224,7 +224,7 @@ async function loadDashboardData() {
 async function loadStudentDashboard() {
     try {
     // Load theses count
-    const thesesResponse = await axios.get(`${API_BASE_URL}/my-theses`, {
+    const thesesResponse = await axios.get(`${API_BASE_URL}/thesis/my-theses`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
     });
     
@@ -261,7 +261,7 @@ async function loadStudentDashboard() {
     // Load supervisor info if available
     if (currentUser.supervisor_id) {
             try {
-        const supervisorResponse = await axios.get(`${API_BASE_URL}/users`, {
+        const supervisorResponse = await axios.get(`${API_BASE_URL}/users/users`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -293,14 +293,14 @@ async function loadStudentDashboard() {
 // Load supervisor dashboard data
 async function loadSupervisorDashboard() {
     // Load assigned students count
-    const studentsResponse = await axios.get(`${API_BASE_URL}/students`, {
+    const studentsResponse = await axios.get(`${API_BASE_URL}/users/students`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
     });
     
     document.getElementById('studentCount').textContent = studentsResponse.data.length;
     
     // Load theses to review
-    const thesesResponse = await axios.get(`${API_BASE_URL}/my-theses`, {
+    const thesesResponse = await axios.get(`${API_BASE_URL}/thesis/my-theses`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
     });
     
@@ -338,7 +338,7 @@ async function loadSupervisorDashboard() {
 // Load admin dashboard data
 async function loadAdminDashboard() {
     // Load users count
-    const usersResponse = await axios.get(`${API_BASE_URL}/users`, {
+    const usersResponse = await axios.get(`${API_BASE_URL}/users/users`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
     });
     
@@ -349,7 +349,7 @@ async function loadAdminDashboard() {
     document.getElementById('supervisorCount').textContent = supervisorCount;
     
     // Load all theses count
-    const thesesResponse = await axios.get(`${API_BASE_URL}/my-theses`, {
+    const thesesResponse = await axios.get(`${API_BASE_URL}/thesis/all`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
     });
     
@@ -457,7 +457,7 @@ async function uploadThesis() {
         document.getElementById('uploadForm').classList.add('hidden');
         document.getElementById('uploadProgress').classList.remove('hidden');
         
-        const response = await axios.post(`${API_BASE_URL}/upload-thesis`, formData, {
+        const response = await axios.post(`${API_BASE_URL}/thesis/upload`, formData, {
             headers: {
                 'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'multipart/form-data'
@@ -548,7 +548,7 @@ async function loadMyTheses() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/my-theses`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/my-theses`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -595,7 +595,7 @@ async function viewThesis(thesisId) {
     
     try {
         // First get thesis info
-        const response = await axios.get(`${API_BASE_URL}/my-theses`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/my-theses`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -659,7 +659,7 @@ async function deleteThesis(thesisId) {
     showLoading();
     
     try {
-        await axios.delete(`${API_BASE_URL}/theses/${thesisId}`, {
+        await axios.delete(`${API_BASE_URL}/thesis/${thesisId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -677,7 +677,7 @@ async function loadAIFeedback() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/my-theses`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/my-theses`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -714,7 +714,7 @@ async function loadAIFeedback() {
 // Load AI feedback options from server
 async function loadAIFeedbackOptions() {
     try {
-        const response = await axios.get(`${API_BASE_URL}/ai-feedback-options`, {
+        const response = await axios.get(`${API_BASE_URL}/ai/feedback-options`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -749,24 +749,24 @@ async function loadAIFeedbackOptions() {
         const checkboxesContainer = document.getElementById('aiFeedbackCheckboxes');
         checkboxesContainer.innerHTML = `
             <div class="flex items-center">
-                <input type="checkbox" id="ai_option_strengths" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
-                <label for="ai_option_strengths" class="ml-2 block text-sm text-gray-700">Identify strengths and positive aspects</label>
+                <input type="checkbox" id="ai_option_formatting_style" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_formatting_style" class="ml-2 block text-sm text-gray-700">Formatting style</label>
             </div>
             <div class="flex items-center">
-                <input type="checkbox" id="ai_option_improvements" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
-                <label for="ai_option_improvements" class="ml-2 block text-sm text-gray-700">Areas for improvement</label>
+                <input type="checkbox" id="ai_option_purpose_objectives" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_purpose_objectives" class="ml-2 block text-sm text-gray-700">Purpose and objectives</label>
             </div>
             <div class="flex items-center">
-                <input type="checkbox" id="ai_option_methodology" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
-                <label for="ai_option_methodology" class="ml-2 block text-sm text-gray-700">Research methodology analysis</label>
+                <input type="checkbox" id="ai_option_theoretical_foundation" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_theoretical_foundation" class="ml-2 block text-sm text-gray-700">Theoretical foundation</label>
             </div>
             <div class="flex items-center">
-                <input type="checkbox" id="ai_option_references" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
-                <label for="ai_option_references" class="ml-2 block text-sm text-gray-700">Reference formatting (Harvard style)</label>
+                <input type="checkbox" id="ai_option_professional_connection" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_professional_connection" class="ml-2 block text-sm text-gray-700">Connection of subject to professional field and expertise</label>
             </div>
             <div class="flex items-center">
-                <input type="checkbox" id="ai_option_theoretical_framework" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
-                <label for="ai_option_theoretical_framework" class="ml-2 block text-sm text-gray-700">Theoretical foundation</label>
+                <input type="checkbox" id="ai_option_development_task" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_development_task" class="ml-2 block text-sm text-gray-700">Development/research task and its definition</label>
             </div>
         `;
     }
@@ -788,7 +788,7 @@ function deselectAllAIFeedbackOptions() {
     });
 }
 
-// Request AI feedback - Completely rewritten
+// Request AI feedback
 async function requestAIFeedback() {
     const thesisId = document.getElementById('thesisSelect').value;
     if (!thesisId) {
@@ -866,6 +866,7 @@ async function requestAIFeedback() {
     };
     
     stopStreamingBtn.onclick = stopStreaming;
+    scrollToBottom();
 
     try {
         const data = new URLSearchParams();
@@ -891,11 +892,14 @@ async function requestAIFeedback() {
             data.append(`predefined_questions[${i}]`, question);
         });
 
-        const url = `${API_BASE_URL}/request-ai-feedback?thesis_id=${encodeURIComponent(thesisId)}`;
+        const url = `${API_BASE_URL}/ai/feedback`;
         const headers = {
             'Content-Type': 'application/x-www-form-urlencoded',
             'Authorization': `Bearer ${authToken}`
         };
+
+        // Add thesis_id to the form data
+        data.append('thesis_id', thesisId);
 
         const response = await fetch(url, { 
             method: 'POST', 
@@ -1035,7 +1039,10 @@ async function requestAIFeedback() {
         // Save feedback
         const saveData = new URLSearchParams();
         saveData.append('feedback_content', accumulatedContent);
-        await axios.post(`${API_BASE_URL}/save-ai-feedback?thesis_id=${thesisId}`, saveData, {
+        // Add thesis_id to the form data
+        saveData.append('thesis_id', thesisId);
+        
+        await axios.post(`${API_BASE_URL}/ai/save-feedback`, saveData, {
             headers: { 
                 'Content-Type': 'application/x-www-form-urlencoded', 
                 'Authorization': `Bearer ${authToken}` 
@@ -1054,7 +1061,7 @@ async function requestAIFeedback() {
             return; // Don't show error message for user-initiated stops
         }
         
-        feedbackContainer.innerHTML = `<p class="text-red-600">Failed to generate feedback: ${error.message}</p>`;
+        // feedbackContainer.innerHTML = `<p class="text-red-600">Failed to generate feedback: ${error.message}</p>`;
         statusBadge.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>Error';
         statusBadge.classList.remove('bg-white', 'bg-opacity-20');
         statusBadge.classList.add('bg-red-500', 'bg-opacity-20');
@@ -1244,6 +1251,10 @@ function scrollToSection(lineNumber) {
     }
 }
 
+function scrollToBottom() {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+}
+
 // Request new feedback function
 function requestNewFeedback() {
     // Hide current results and show the form again
@@ -1299,7 +1310,7 @@ async function loadSupervisorFeedback() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/supervisor-feedback`, {
+        const response = await axios.get(`${API_BASE_URL}/users/supervisor-feedback`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -1346,7 +1357,7 @@ async function loadAssignedStudents() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/students`, {
+        const response = await axios.get(`${API_BASE_URL}/users/students`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -1406,7 +1417,7 @@ async function loadThesesToReview() {
     showLoading();
     
     try {
-const response = await axios.get(`${API_BASE_URL}/theses-to-review`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/to-review`, {
     headers: { 'Authorization': `Bearer ${authToken}` }
 });
 
@@ -1458,7 +1469,7 @@ async function provideFeedback(thesisId) {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/theses/${thesisId}`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/${thesisId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -1511,7 +1522,7 @@ async function submitSupervisorFeedback() {
     showLoading();
     
     try {
-        await axios.post(`${API_BASE_URL}/submit-feedback`, {
+        await axios.post(`${API_BASE_URL}/users/submit-supervisor-feedback`, {
             thesis_id: currentThesisId,
             feedback_text: feedbackText
         }, {
@@ -1533,7 +1544,7 @@ async function loadAllUsers() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/users`, {
+        const response = await axios.get(`${API_BASE_URL}/users/users`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -1615,7 +1626,7 @@ async function addNewUser() {
             params.append('supervisor_id', supervisor);
         }
 
-        const response = await axios.post(`${API_BASE_URL}/register`, params, {
+        const response = await axios.post(`${API_BASE_URL}/auth/register`, params, {
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded',
                 'Authorization': `Bearer ${authToken}`
@@ -1651,15 +1662,163 @@ async function addNewUser() {
 
 }
 
-// Edit user (placeholder)
-function editUser(username) {
-    alert(`This would edit user ${username} in a real implementation`);
+// Edit user
+async function editUser(username) {
+    showLoading();
+    
+    try {
+        // Get user details
+        const response = await axios.get(`${API_BASE_URL}/users/users/${username}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const user = response.data;
+        
+        // Populate the edit form
+        document.getElementById('editUsername').value = user.username;
+        document.getElementById('editEmail').value = user.email;
+        document.getElementById('editFullName').value = user.full_name;
+        document.getElementById('editRole').value = user.role;
+        
+        // Handle supervisor field visibility
+        const editSupervisorField = document.getElementById('editSupervisorField');
+        const editSupervisor = document.getElementById('editSupervisor');
+        
+        if (user.role === 'student') {
+            editSupervisorField.classList.remove('hidden');
+            
+            // Load supervisors for dropdown
+            const supervisorsResponse = await axios.get(`${API_BASE_URL}/users/supervisors`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            editSupervisor.innerHTML = '<option value="">-- Select a supervisor --</option>';
+            supervisorsResponse.data.forEach(supervisor => {
+                const option = document.createElement('option');
+                option.value = supervisor.username;
+                option.textContent = supervisor.full_name;
+                if (user.supervisor_id === supervisor.id) {
+                    option.selected = true;
+                }
+                editSupervisor.appendChild(option);
+            });
+        } else {
+            editSupervisorField.classList.add('hidden');
+        }
+        
+        // Show the modal
+        document.getElementById('editUserModal').classList.remove('hidden');
+        
+        // Add event listener for role change
+        document.getElementById('editRole').addEventListener('change', function() {
+            if (this.value === 'student') {
+                editSupervisorField.classList.remove('hidden');
+                // Reload supervisors
+                loadSupervisorsForEdit();
+            } else {
+                editSupervisorField.classList.add('hidden');
+            }
+        });
+        
+        // Add event listener for confirm button
+        document.getElementById('confirmEditUser').onclick = () => updateUser(username);
+        
+    } catch (error) {
+        console.error('Failed to load user details:', error);
+        alert(`Failed to load user details: ${error.response?.data?.detail || error.message}`);
+    }
+    
+    hideLoading();
 }
 
-// Delete user (placeholder)
-function deleteUser(username) {
+// Load supervisors for edit modal
+async function loadSupervisorsForEdit() {
+    try {
+        const supervisorsResponse = await axios.get(`${API_BASE_URL}/users/supervisors`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const editSupervisor = document.getElementById('editSupervisor');
+        editSupervisor.innerHTML = '<option value="">-- Select a supervisor --</option>';
+        
+        supervisorsResponse.data.forEach(supervisor => {
+            const option = document.createElement('option');
+            option.value = supervisor.username;
+            option.textContent = supervisor.full_name;
+            editSupervisor.appendChild(option);
+        });
+    } catch (error) {
+        console.error('Failed to load supervisors:', error);
+    }
+}
+
+// Update user
+async function updateUser(username) {
+    showLoading();
+    
+    try {
+        const formData = new FormData();
+        formData.append('email', document.getElementById('editEmail').value);
+        formData.append('full_name', document.getElementById('editFullName').value);
+        formData.append('role', document.getElementById('editRole').value);
+        
+        const editSupervisor = document.getElementById('editSupervisor');
+        if (document.getElementById('editRole').value === 'student' && editSupervisor.value) {
+            formData.append('supervisor_username', editSupervisor.value);
+        }
+        
+        const response = await axios.put(`${API_BASE_URL}/users/users/${username}`, formData, {
+            headers: { 
+                'Authorization': `Bearer ${authToken}`,
+                'Content-Type': 'application/x-www-form-urlencoded'
+            }
+        });
+        
+        alert(`User ${username} updated successfully`);
+        
+        // Hide modal and refresh users list
+        hideEditUserModal();
+        loadAllUsers();
+        
+    } catch (error) {
+        console.error('Failed to update user:', error);
+        alert(`Failed to update user: ${error.response?.data?.detail || error.message}`);
+    }
+    
+    hideLoading();
+}
+
+// Show edit user modal
+function showEditUserModal() {
+    document.getElementById('editUserModal').classList.remove('hidden');
+}
+
+// Hide edit user modal
+function hideEditUserModal() {
+    document.getElementById('editUserModal').classList.add('hidden');
+}
+
+// Delete user
+async function deleteUser(username) {
     if (!confirm(`Are you sure you want to delete user ${username}? This action cannot be undone.`)) return;
-    alert(`This would delete user ${username} in a real implementation`);
+    
+    showLoading();
+    
+    try {
+        const response = await axios.delete(`${API_BASE_URL}/users/users/${username}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        alert(`User ${username} deleted successfully`);
+        
+        // Refresh the users list
+        loadAllUsers();
+    } catch (error) {
+        console.error('Failed to delete user:', error);
+        alert(`Failed to delete user: ${error.response?.data?.detail || error.message}`);
+    }
+    
+    hideLoading();
 }
 
 // Load assign supervisors section (admin)
@@ -1668,7 +1827,7 @@ async function loadAssignSupervisors() {
     
     try {
         // Load current assignments
-        const assignmentsResponse = await axios.get(`${API_BASE_URL}/supervisor-assignments`, {
+        const assignmentsResponse = await axios.get(`${API_BASE_URL}/users/supervisor-assignments`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -1698,13 +1857,13 @@ async function loadAssignSupervisors() {
         }
         
         // Load students and supervisors for dropdowns
-        const studentsResponse = await axios.get(`${API_BASE_URL}/students`, {
+        const studentsResponse = await axios.get(`${API_BASE_URL}/users/students`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
         console.log("studentsResponse:", studentsResponse);
         
-        const supervisorsResponse = await axios.get(`${API_BASE_URL}/supervisors`, {
+        const supervisorsResponse = await axios.get(`${API_BASE_URL}/users/supervisors`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
 
@@ -1768,7 +1927,7 @@ async function assignSupervisor() {
         params.append("supervisor_username", supervisorId);
 
         // Send POST request with URL-encoded data
-        await axios.post(`${API_BASE_URL}/assign-supervisor`, params, {
+        await axios.post(`${API_BASE_URL}/users/assign-supervisor`, params, {
             headers: {
                 'Authorization': `Bearer ${authToken}`,
                 'Content-Type': 'application/x-www-form-urlencoded'
@@ -1798,7 +1957,7 @@ async function loadAllTheses() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/all-theses`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/all`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
@@ -1861,7 +2020,7 @@ async function downloadThesis() {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/download-thesis/${currentThesisId}`, {
+        const response = await axios.get(`${API_BASE_URL}/thesis/download/${currentThesisId}`, {
             headers: { 'Authorization': `Bearer ${authToken}` },
             responseType: 'blob'
         });
@@ -1919,7 +2078,7 @@ async function previewThesis() {
         
         // Get preview images from server
         try {
-            const imagesResponse = await axios.get(`${API_BASE_URL}/thesis-preview-images/${currentThesisId}`, {
+            const imagesResponse = await axios.get(`${API_BASE_URL}/thesis/preview-images/${currentThesisId}`, {
                 headers: { 'Authorization': `Bearer ${authToken}` }
             });
             
@@ -1968,7 +2127,7 @@ async function previewThesis() {
             
             if (fileExtension === 'pdf') {
                 try {
-                    const previewUrl = `${API_BASE_URL}/download-thesis/${currentThesisId}`;
+                    const previewUrl = `${API_BASE_URL}/thesis/download/${currentThesisId}`;
                     const headers = { 'Authorization': `Bearer ${authToken}` };
                     
                     const pdfResponse = await fetch(previewUrl, { headers });
