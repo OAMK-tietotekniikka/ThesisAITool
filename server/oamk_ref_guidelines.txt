@@ -1,0 +1,169 @@
+REFERENCE GUIDELINES:
+
+Harvard Referencing Guidelines are used in Oamk theses.
+
+A reference is always consisted of two parts: an in-text reference and a bibliography entry in the list of references.
+
+In-text reference (1): in the text, detailed bibliographic information available in the References section of the thesis.
+Note in the list of references (2): accurately identifies the reference in the References chapter of the thesis.
+Make a clear difference between your own and the referred text. The references indicate whose text or thoughts are referred to and make it easy for the reader to find the original sources. If references are not marked, the reader assumes that the thoughts and arguments in the text are yours. Failure to mark the references may result in allegations of plagiarism.
+
+1) Examples of in-text references and notes in the list of references
+Article
+According to (Kallenbach 2020, 199) or Kallenbach (2020, 199) found that…
+Kallenbach, T. 2020. Narratives of urban mobility in Germany: On the threshold of a departure from the car-centered city? Sustainability: science, practice, & policy, 16 (1), 197–207. URL: https://doi.org/10.1080/15487733.2020.1799625. Accessed 23.9.2020.
+The web address starts on the same line after the search date.
+
+Book 
+(Rodger & Kennedy-Behr 2017, 10.)
+Rodger, S. & Kennedy-Behr, A.  2017. Occupation-centred practice with children: A practical guide to occupational therapists. Second edition. Chichester: Oxford Wiley Blackwell.  
+If information is summarised from a source over several pages, a dash is used between page numbers.
+
+(Rudestam & Newton 2007, 62–63.)
+If a non-continuous quotation that consists of pieces of text taken from several pages, a comma is used between page numbers.
+
+(Rudestam & Newton 2007, 62, 64, 67.)
+When simultaneously referring to multiple sources on the same content, separate the sources by a semi-colon. The sources are listed in chronological order and sources published in the same year in alphabetical order by the authors’ name.
+
+(Swales & Feak 1994, 125; Sharp & Howard 1996, 189; Murray 2002, 114.)
+The sources of images and tables are marked in brackets after the heading.
+
+References section of the thesis
+
+All in-text references must be listed in the list of references.
+The references are in alphabetical order.
+Publications by the same author from different years are arranged by year of publication from oldest to latest.
+In cases where an author has published many texts in the same year, they are distinguished by the letters a, b, c etc. both in the list of references and in-text references.
+
+Always use permanent addresses (e.g. URN, DOI)
+With electronic materials such as theses, use their permanent addresses. Do not copy the temporary search title from the browser’s title bar. Permanent addresses are, for example, addresses starting with URN and DOI. See an example in the Articles section.
+
+2) The name-year system
+
+The name-year system
+
+Full stop position in in-text references
+In-text references are enclosed in parentheses and placed either at the beginning or at the end of the quoted text.
+
+The position of the full stop is significant in in-text references. If the referenced thought is expressed in one sentence, the full stop is placed outside the brackets. The referenced sentence does not have its own full stop.
+
+Example 1 The essential concepts related to the study should be defined and there can even be a separate chapter for the concepts and terminology (Kananen 2011, 141-142).
+
+If the referenced thought expands over several previous sentences, the full stop is placed within the brackets. Each referenced sentence has its own full stop. When a paragraph changes within a chapter, an in-text reference mark is always needed, even if the source remains the same.
+
+Example 2 You should draw up a timetable for the thesis and each of its parts. The timetable should be made realistically so that you can follow it. Making a timetable for a big development project is difficult, but if you divide it into suitable sub-processes, the job is a lot easier, and it is easier to make an approximate estimate of the working time required for each sub-process. (Hakala 2000, 53.)
+
+
+Indirect and Direct Quotation
+An indirect quotation means text referenced in the original text in its own words. It is used a lot in the thesis because it facilitates the creation of a unified text style for the thesis. A direct quote corresponds exactly to the original text. It is used only in justified situations, such as when the wording of the source must be kept absolutely unchanged.
+
+Examples of indirect quotations 
+See previous paragraph “The Position of the Point in Text Reference”
+
+Examples of direct quotations
+”You should use references to justify and support your arguments” (Blaxter, Hughes & Tight 2001, 127).
+
+A long direct quote that is indented and written without quotation marks in line spacing 1.
+
+Example of a direct quote with abbreviated text (two hyphens in the place of removed words / sentences)
+
+”- – a skillful researcher draws on original source material rather than – – review articles and secondary sources” (Rudestam & Newton 2007, 64).
+
+See also paraphrasing and direct quotations on the ‘Thesis Writing’ page.
+
+
+Articles
+Below are examples of in-text references (1) and notes in the list of references (2). Please make sure that the point location concerning in-text references is in the correct place.
+
+Printed Periodicals
+1: (Moll & Yigitbasioglu 2019, 3.)
+2: Moll, J. & Yigitbasioglu, O. 2019. The role of internet-related technologies in shaping the work of accountants: New directions for accounting research. The British Accounting Review 51 (6), 1–16.
+In the example, number 51 is the volume number of the journal and number 6 is the issue of the journal.
+
+Electronic Materials
+1: (Kallenbach 2020, 199.)
+2: Kallenbach, T. 2020. Narratives of urban mobility in Germany: On the threshold of a departure from the car-centered city? Sustainability: science, practice, & policy 16 (1), 197-207. Search date 23.9.2020. https://doi.org/10.1080/15487733.2020.1799625.
+
+
+Books
+Below are examples of in-text references (1) and notes in the list of references (2). Please make sure that the point location concerning in-text references is in the correct place.
+
+Printed
+1: (Rodger & Kennedy-Behr 2017, 10.)
+2: Rodger, S. & Kennedy-Behr, A. 2017. Occupation-centred practice with children: A practical guide to occupational therapistis. Second edition. Chichester: Oxford Wiley Blackwell.
+
+1: If the authors are six or more, the first in-text reference (Syvänen et al. 2015, 88.) and the following in-text references (Syvänen et al 2015, 88.)
+2:  Syvänen, S., Tikkamäki, K., Loppela, K., Tappura, S., Kasvio, A. & Toikko, T. 2015. Dialoginen johtaminen. Avain tuloksellisuuteen, työelämän laatuun ja innovatiivisuuteen. Tampere University Press. Tampere.
+
+E-books
+1: If the authors are more than three, the first in-text reference (Altmann, Edesberger, Mössenlechner & Wieser 2018, 8.) and the following in-text references (Altmann et al. 2018, 18.)
+2: Altmann, A., Ebersberger, B., Mössenlechner, C. & Wieser, D. 2018. Introduction: The Disruptive Power of Online Education: Challenges, Opportunities, Responses. Bingley: Emerald Publishing Limited. Search date 23.9.2020. https://ebookcentral-proquest-com.ezp.oamk.fi:2047/lib/oamk-ebooks/detail.action?docID=5589439.  Access required.
+
+1: (Bowling 2016, 2.)
+2: Bowling, B. 2016. Kanski’s clinical ophthalmology: a systematic approach. Eighth edition. Saunders. London. E-book. Read: 17.1.2020.
+
+
+If an electronic book does not have a page number, the number of the chapter is marked in the in-text
+reference (for example Smith 2020, chapter 3.1). If the chapters are not numbered, the title of the chapter is used. If the chapter is extensive, the
+in-text reference is specified with the title of the sub-chapter.
+
+
+Serial Publications and Reports
+Below are examples of in-text references (1) and notes in the list of references (2). Please make sure that the point location concerning in-text references is in the correct place.
+
+1: (Kiefer 2002, 42.)
+2: Kiefer, T. 2002. Understanding the emotional experience of organizational change: evidence from a merger. Academy of Human Resource Development, Advances in developing human resources 2002: 4, 39. Search date 23.9.2020. https://www.researchgate.net/publication/249628848_Understanding_the_Emotional_Experience_of_Organizational_Change_Evidence_from_a_Merger.
+
+
+Network Sources
+Below are examples of in-text references (1) and notes in the list of references (2). Please make sure that the point location concerning in-text references is in the correct place.
+
+If network source has a creator, it will be used. If this information is missing, the organization responsible for the administration of the pages is listed as the author. If this piece of information is not available, the title of the text is listed first. The first piece of information of an in-text reference is also placed first on the references.
+
+The web address starts on the same line after the search date.
+
+1: (Bhatia 2018.)
+2: Bhatia,  M. 2018. Your Guide to Qualitative and Quantitative Data Analysis Methods. Search date 17.12.2019. https://humansofdata.atlan.com/2018/09/qualitative-quantitative-data-analysis-methods/.
+
+1: (Lund Research Ltd 2018.)
+2: Lund Research Ltd 2018. Descriptive and Inferential Statistics. Search date 23.9.2020. https://statistics.laerd.com/statistical-guides/descriptive-inferential-statistics.php.
+
+
+Social Media and Network Services
+Below are examples of in-text references (1) and notes in the list of references (2). Please make sure that the point location concerning in-text references is in the correct place.
+
+1: (Flinders & Dimova 2020.)
+2: Flinders, M. & Dimova, G. 2020. Bringing in the experts: blame deflection and the COVID-19 crisis. LSE: British Politics and Policy. Search Date 12.3.202. https://blogs.lse.ac.uk/politicsandpolicy/bringing-in-the-experts-blame-deflection-and-the-covid-19-crisis/.
+
+1: (Wesch 2019.)
+2: Wesch, M. 2019. 10 Online Teaching Tips beyond Zoom: Teaching Without Walls Episode 1.Search Date 12.3.2021. https://www.youtube.com/watch?v=D7vooDcxUaA.
+
+1: (Cycling Weekly 2019.)
+2: Cycling Weekly 2019. Twitter update 18.2.2019. Search Date 12.3.2021. https://twitter.com/cyclingweekly/status/1097446751009685505.
+
+
+Images
+Below are examples of in-text references (1) and notes in the list of references (2). Please make sure that the point location concerning in-text references is in the correct place.
+
+1: (Blanken 2020.)
+2: Blanken, R 2020. Great Grey Owl [online image]. Search Date 25.3.2021. https://www.flickr.com/photos/robblanken/49617184267.
+
+1: (Turner 1849.)
+2: Turner, J. 1849. The Wreck Buoy [oil on canvas]. At: Liverpool: Sudley House.
+
+
+Missing Information
+Referencing information must be provided whenever available. If any of the information is missing, this field is omitted, with the exception of the journal or volume number, in which place s.a (sine anno) is used.
+
+
+Ibid., See and Cf.
+If the same reference is repeated in full two or more times in succession within a chapter, it may be replaced by “(ibid.)”. If the author and year of publication are the same but the page numbers differ, use ”(ibid., 23.)”. Never use “(ibid.)” in the first reference on a page.
+
+If you want to lend support to presented results and conclusions, you can refer to publications on the same subject which either provide similar information on the matter or justify the conclusions that have been reached.
+“(see In-text references 1; In-text references 2; In-text references 3.)”
+
+If you are referring to views that differ from your own conclusions you can use ”(cf.)”. Similarly if sources are interpreted in such a way that the original idea may change, it should also be noted.
+“(cf. In-text references 1).”
+
+It is also possible to use the number reference system, but it is not instructed separately.
+

@@ -752,6 +752,10 @@ class UnifiedAIModel:
             print(f"Error reading thesis file: {str(e)}")
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
             return
+
+        guidelines = ''
+        with open('oamk_ref_guidelines.txt', 'r', encoding='utf8') as f:
+            guidelines = f.read()
         
         prompt = f"""
         Analyze the following thesis content and provide detailed analysis of REFERENCE FORMATTING (Harvard style).
@@ -767,10 +771,15 @@ class UnifiedAIModel:
         5. Accuracy of citations
         6. Quality and relevance of sources
         7. Proper attribution of ideas
-        
+
         Provide specific examples of correct and incorrect citations from the thesis.
-        
-        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+
+        IMPORTANT 1: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+
+        IMPORTANT 2: Following these guidelines:
+        [Start of guidelines]
+        {guidelines}.
+        [end of guidelines]
         """
         
         messages = [{"role": "user", "content": prompt}]
