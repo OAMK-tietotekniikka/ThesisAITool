@@ -2,7 +2,7 @@
 
 A FastAPI-based server for thesis analysis and feedback with AI integration and Graphical User Interface client.
 
-## Installation
+## ⚙️ Installation
 
 1. Clone the repository and install dependencies:
 ```bash
@@ -32,7 +32,7 @@ your_preferred_provider_API_KEY=your_api_key_here
 
 Replace `your_preferred_provider` with one of the supported provider names (openai, deepseek, or openrouter) and substitute `your_api_key_here` with your actual API key.
 
-## Running the Server
+## ▶️ Running the Server
 
 Assumed that you are in the root project directory.
 
@@ -53,16 +53,15 @@ cd server
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-## Start Using the Tool with GUI
+## 🖥️ Start Using the Tool with GUI
 
 Simply navigate to the `client` directory and open `index.html` in your web browser, or deploy the entire `client` directory to your preferred hosting environment to access the graphical user interface. Remember to change `API_BASE_URL` in `main.js` to your own URL if you do so.
 
 
-## Testing
+## 🧪 Testing
 
 ### **Server Testing**
 
-Run the test script to verify everything is working:
 ```bash
 cd server
 python test_server.py
@@ -116,7 +115,7 @@ The API documentation is available at:
 - Supervisor-student assignment system
 - Role-based permissions and access control
 
-## Default Users
+## 👤 Default Users
 
 The server comes with pre-configured test users.:
 
@@ -208,7 +207,7 @@ ThesisAITool/
 └── README.md                       # Original README
 ```
 
-## Troubleshooting
+## ❓ Troubleshooting
 
 1. **Import errors**: Make sure all dependencies are installed
 2. **API key errors**: Set the API key environment variable
