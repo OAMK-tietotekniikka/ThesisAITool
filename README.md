@@ -33,9 +33,11 @@ Replace `your_preferred_provider` with one of the supported provider names (open
 
 ## Running the Server
 
+Assumed that you are in the root project directory.
+
 ### Option 1: Using the startup script (recommended)
 ```bash
-python start_server.py
+python run_server.py
 ```
 
 ### Option 2: Direct execution
@@ -52,7 +54,7 @@ uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 
 ## Start Using the Tool with GUI
 
-Simply navigate to the `client` directory and open `index.html` in your web browser, or deploy the entire `client` directory to your preferred hosting environment to access the graphical user interface. Remember to edit change `API_BASE_URL` in `main.js` if you do so.
+Simply navigate to the `client` directory and open `index.html` in your web browser, or deploy the entire `client` directory to your preferred hosting environment to access the graphical user interface. Remember to change `API_BASE_URL` in `main.js` to your own URL if you do so.
 
 
 ## Testing
@@ -89,15 +91,20 @@ Delete `thesis_ai.db` for a clean database.
 ## File Structure
 
 ```
-server/
-├── app.py                 # Main FastAPI application
-├── requirements.txt       # Python dependencies
-├── start_server.py       # Startup script with error handling
-├── test_server.py        # Test script
-├── README.md            # This file
-├── thesis_uploads/      # Uploaded thesis files
-├── feedback_files/      # Supervisor feedback files
-└── ai_responses/        # AI analysis responses
+ThesisAITool/
+├── server/
+│   ├── app.py                 # Main FastAPI application
+│   ├── requirements.txt       # Python dependencies
+│   ├── run_server.py          # Startup script with error handling
+│   ├── test_server.py         # Test script
+│   ├── README.md              # This file
+│   ├── thesis_uploads/        # Uploaded thesis files
+│   ├── feedback_files/        # Supervisor feedback files
+│   └── ai_responses/          # AI analysis responses
+└── client/
+    ├── index.html
+    ├── main.js
+    └── style.css
 ```
 
 ## Troubleshooting
@@ -106,3 +113,4 @@ server/
 2. **API key errors**: Set the API key environment variable
 3. **File permission errors**: Ensure the server has write permissions to the directories
 4. **Port already in use**: Change the port in the startup script or kill the existing process 
+
