@@ -36,6 +36,7 @@ from fastapi.security import (
 )
 from fastapi import HTTPException
 from fastapi.responses import JSONResponse, FileResponse, HTMLResponse, StreamingResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, EmailStr, Field
 from passlib.context import CryptContext
@@ -48,8 +49,20 @@ import logging
 logging.basicConfig(level=logging.DEBUG)
 logging.getLogger("pdfminer").setLevel(logging.WARNING)
 
-# Import our configuration
+# Image processing imports
+try:
+    from PIL import Image, ImageDraw, ImageFont
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter, A4
+    from reportlab.lib.units import inch
+    IMAGE_PROCESSING_AVAILABLE = True
+except ImportError:
+    IMAGE_PROCESSING_AVAILABLE = False
+    print("Warning: Image processing libraries not available. Thesis preview as images will be disabled.")
+
+# Import our configuration and database
 from config import config
+from database import user_repo, thesis_repo, feedback_repo
 
 # AI Provider Enum
 class AIProvider(str, Enum):
@@ -74,12 +87,25 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Security
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
-security = HTTPBearer()
+# Mount static files from client directory
+app.mount("/web", StaticFiles(directory="../client"), name="web")
 
-# Database models (in a real app, use a proper database)
+# Add a test route to verify static files
+@app.get("/test-static")
+async def test_static():
+    return HTMLResponse(content="""
+    <h1>Static Files Test</h1>
+    <p>If you can see this, the server is running.</p>
+    <p>Try these links:</p>
+    <ul>
+        <li><a href="/web/">/web/</a> - Client directory listing</li>
+        <li><a href="/web/index.html">/web/index.html</a> - Main HTML file</li>
+        <li><a href="/web/main.js">/web/main.js</a> - JavaScript file</li>
+        <li><a href="/web/style.css">/web/style.css</a> - CSS file</li>
+    </ul>
+    """)
+
+# Database models (using SQLite database)
 class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     username: str
@@ -116,50 +142,10 @@ class AIRequest(BaseModel):
     provider: AIProvider = None  # Will use active provider if None
     model: Optional[str] = None
 
-# Mock database
-fake_users_db = {
-    "admin": User(
-        username="admin",
-        email="admin@gmail.com",
-        full_name="Admin User",
-        hashed_password=pwd_context.hash("1234"),
-        role="admin"
-    ),
-    "gv": User(
-        username="gv",
-        email="gv@gmail.com",
-        full_name="Dr. Jane Smith",
-        hashed_password=pwd_context.hash("1234"),
-        role="supervisor",
-        assigned_students=[],
-    ),
-    "gv0": User(
-        username="gv0",
-        email="gv0@gmail.com",
-        full_name="Dr. Billy Andersson",
-        hashed_password=pwd_context.hash("1234"),
-        role="supervisor",
-        assigned_students=["sv"],
-    ),
-    "sv": User(
-        username="sv",
-        email="sv@gmail.com",
-        full_name="John Doe",
-        hashed_password=pwd_context.hash("1234"),
-        role="student",
-        supervisor_id="gv0"
-    ),
-    "sv2": User(
-        username="sv2",
-        email="sv2@gmail.com",
-        full_name="New Student",
-        hashed_password=pwd_context.hash("1234"),
-        role="student",
-    ),
-}
-
-fake_theses_db = {}
-fake_feedback_db = {}
+# Security
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
+security = HTTPBearer()
 
 # Utility functions
 def verify_password(plain_password, hashed_password):
@@ -168,19 +154,16 @@ def verify_password(plain_password, hashed_password):
 def get_password_hash(password):
     return pwd_context.hash(password)
 
-def get_user(db, username: str):
-    if username in db:
-        user_dict = db[username].dict()
-        return User(**user_dict)
-    return None
+def get_user(username: str):
+    return user_repo.get_user_by_username(username)
 
-def authenticate_user(fake_db, username: str, password: str):
-    user = get_user(fake_db, username)
-    if not user:
+def authenticate_user(username: str, password: str):
+    user_dict = get_user(username)
+    if not user_dict:
         return False
-    if not verify_password(password, user.hashed_password):
+    if not verify_password(password, user_dict['hashed_password']):
         return False
-    return user
+    return User(**user_dict)
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -202,10 +185,10 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
     except PyJWTError:
         raise credentials_exception
     
-    user = get_user(fake_users_db, username)
-    if user is None:
+    user_dict = get_user(username)
+    if user_dict is None:
         raise credentials_exception
-    return user
+    return User(**user_dict)
 
 async def get_current_active_user(current_user: User = Depends(get_current_user)):
     if current_user.disabled:
@@ -213,9 +196,9 @@ async def get_current_active_user(current_user: User = Depends(get_current_user)
     return current_user
 
 def get_student_name(student_id: str) -> str:
-    student = next((user for user in fake_users_db.values() if user.id == student_id), None)
-    if student and student.role == "student":
-        return student.full_name
+    student_dict = user_repo.get_user_by_id(student_id)
+    if student_dict and student_dict['role'] == "student":
+        return student_dict['full_name']
     else:
         raise HTTPException(status_code=404, detail="Student not found")
 
@@ -280,6 +263,186 @@ def extract_text_from_file(file_path: str) -> str:
     else:
         print("Unsupported file format")
         raise HTTPException(status_code=400, detail="Unsupported file format")
+
+def convert_document_to_images(file_path: str, max_pages: int = 5) -> List[Dict[str, Any]]:
+    """Convert document pages to images for preview"""
+    if not IMAGE_PROCESSING_AVAILABLE:
+        raise HTTPException(status_code=500, detail="Image processing not available")
+    
+    file_ext = os.path.splitext(file_path)[1].lower()
+    images = []
+    
+    try:
+        if file_ext == ".pdf":
+            # Convert PDF pages to images
+            pdf_document = fitz.open(file_path)
+            num_pages = min(len(pdf_document), max_pages)
+            
+            for page_num in range(num_pages):
+                page = pdf_document[page_num]
+                # Render page to image with higher resolution
+                mat = fitz.Matrix(2.0, 2.0)  # 2x zoom for better quality
+                pix = page.get_pixmap(matrix=mat)
+                
+                # Convert to PIL Image
+                img_data = pix.tobytes("png")
+                img = Image.open(io.BytesIO(img_data))
+                
+                # Resize for web display (max width 800px)
+                max_width = 800
+                if img.width > max_width:
+                    ratio = max_width / img.width
+                    new_height = int(img.height * ratio)
+                    img = img.resize((max_width, new_height), Image.Resampling.LANCZOS)
+                
+                # Convert to base64 for web display
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='PNG')
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                
+                images.append({
+                    'page': page_num + 1,
+                    'image': f"data:image/png;base64,{img_base64}",
+                    'width': img.width,
+                    'height': img.height
+                })
+            
+            pdf_document.close()
+            
+        elif file_ext in [".doc", ".docx"]:
+            # For DOC/DOCX, we'll create a simple text-based preview
+            # since converting DOC/DOCX to images is complex
+            try:
+                doc = docx.Document(file_path)
+                text_content = ""
+                for para in doc.paragraphs:
+                    text_content += para.text + "\n"
+                
+                # Create a simple text preview image
+                img = create_text_preview_image(text_content[:2000], "Document Preview")  # First 2000 chars
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='PNG')
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                
+                images.append({
+                    'page': 1,
+                    'image': f"data:image/png;base64,{img_base64}",
+                    'width': img.width,
+                    'height': img.height,
+                    'text_content': text_content
+                })
+                
+            except Exception as e:
+                print(f"Error processing DOC/DOCX: {str(e)}")
+                # Create a fallback image
+                img = create_error_preview_image("Unable to preview document")
+                img_buffer = io.BytesIO()
+                img.save(img_buffer, format='PNG')
+                img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+                
+                images.append({
+                    'page': 1,
+                    'image': f"data:image/png;base64,{img_base64}",
+                    'width': img.width,
+                    'height': img.height
+                })
+        
+        else:
+            # For unsupported formats, create an error image
+            img = create_error_preview_image("Unsupported file format")
+            img_buffer = io.BytesIO()
+            img.save(img_buffer, format='PNG')
+            img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+            
+            images.append({
+                'page': 1,
+                'image': f"data:image/png;base64,{img_base64}",
+                'width': img.width,
+                'height': img.height
+            })
+    
+    except Exception as e:
+        print(f"Error converting document to images: {str(e)}")
+        # Create error image
+        img = create_error_preview_image("Error processing document")
+        img_buffer = io.BytesIO()
+        img.save(img_buffer, format='PNG')
+        img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
+        
+        images.append({
+            'page': 1,
+            'image': f"data:image/png;base64,{img_base64}",
+            'width': img.width,
+            'height': img.height
+        })
+    
+    return images
+
+def create_text_preview_image(text: str, title: str) -> Image.Image:
+    """Create a preview image from text content"""
+    # Create image with white background
+    img = Image.new('RGB', (800, 600), color='white')
+    draw = ImageDraw.Draw(img)
+    
+    # Try to use a default font, fallback to basic if not available
+    try:
+        font = ImageFont.truetype("arial.ttf", 14)
+        title_font = ImageFont.truetype("arial.ttf", 18)
+    except:
+        font = ImageFont.load_default()
+        title_font = ImageFont.load_default()
+    
+    # Draw title
+    draw.text((20, 20), title, fill='black', font=title_font)
+    
+    # Draw text content with word wrapping
+    lines = []
+    words = text.split()
+    current_line = ""
+    
+    for word in words:
+        test_line = current_line + " " + word if current_line else word
+        bbox = draw.textbbox((0, 0), test_line, font=font)
+        if bbox[2] > 760:  # 800 - 40 (margins)
+            if current_line:
+                lines.append(current_line)
+                current_line = word
+            else:
+                lines.append(word)
+        else:
+            current_line = test_line
+    
+    if current_line:
+        lines.append(current_line)
+    
+    # Draw lines
+    y_position = 60
+    for line in lines[:30]:  # Limit to 30 lines
+        draw.text((20, y_position), line, fill='black', font=font)
+        y_position += 18
+        if y_position > 550:
+            break
+    
+    if len(lines) > 30:
+        draw.text((20, y_position), "...", fill='gray', font=font)
+    
+    return img
+
+def create_error_preview_image(message: str) -> Image.Image:
+    """Create an error preview image"""
+    img = Image.new('RGB', (400, 200), color='#f8f9fa')
+    draw = ImageDraw.Draw(img)
+    
+    try:
+        font = ImageFont.truetype("arial.ttf", 16)
+    except:
+        font = ImageFont.load_default()
+    
+    # Draw error message
+    draw.text((20, 80), message, fill='#dc3545', font=font)
+    draw.text((20, 110), "Please download the file to view its contents.", fill='#6c757d', font=font)
+    
+    return img
 
 # Unified AI Interface
 class UnifiedAIModel:
@@ -429,35 +592,7 @@ class UnifiedAIModel:
             print(f"❌ Error with {provider} streaming: {str(e)}")
             yield f"data: {json.dumps({'type': 'error', 'content': f'Error with {provider}: {str(e)}'})}\n\n"
 
-    async def analyze_thesis(self, file_path: str, custom_instructions: str, 
-                           predefined_questions: List[str], provider: AIProvider = None, 
-                           model: Optional[str] = None) -> str:
-        """Analyze thesis content using the specified AI provider"""
-        if provider is None:
-            provider = AIProvider(config.get_active_provider())
-            
-        try:
-            thesis_content = extract_text_from_file(file_path)
-        except Exception as e:
-            print(f"Error reading thesis file: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
-        
-        prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
-        for question in predefined_questions:
-            prompt += f"- {question}\n"
-        
-        messages = [{"role": "user", "content": prompt}]
-        
-        if custom_instructions:
-            messages.insert(0, {"role": "system", "content": custom_instructions})
-        
-        try:
-            response_json = await self.make_request(provider, messages, model)
-            message = response_json["choices"][0]["message"]["content"]
-            return message
-        except Exception as e:
-            print(f"❌ Error in analyze_thesis with {provider}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
+
 
     async def analyze_thesis_stream(self, file_path: str, custom_instructions: str, 
                                   predefined_questions: List[str], provider: AIProvider = None, 
@@ -476,50 +611,21 @@ class UnifiedAIModel:
         prompt = f"Analyze the following thesis content: {thesis_content}\nPlease answer the following questions:\n"
         for question in predefined_questions:
             prompt += f"- {question}\n"
+        prompt += "\nIMPORTANT: Provide direct answers to the questions above. Do NOT ask any follow-up questions. Do NOT ask for clarification. Simply provide your analysis and recommendations based on the content provided. Thank you!"
         
         messages = [{"role": "user", "content": prompt}]
         
         if custom_instructions:
-            messages.insert(0, {"role": "system", "content": custom_instructions})
+            messages.insert(0, {"role": "system", "content": custom_instructions + "\n\nCRITICAL INSTRUCTION: You must NOT ask any follow-up questions. Provide direct analysis and feedback only."})
+        else:
+            messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
         
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_objective(self, file_path: str, provider: AIProvider = None, 
-                            model: Optional[str] = None) -> str:
-        """Grade thesis objectives using the specified AI provider"""
-        if provider is None:
-            provider = AIProvider(config.get_active_provider())
-            
-        try:
-            thesis_content = extract_text_from_file(file_path)
-        except Exception as e:
-            print(f"Error reading thesis file: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
-        
-        custom_instructions = """
-            Analyze the content, then grade the Purpose and objectives from 1-5 based on these criteria:
-            - Excellent (5): The purpose and objectives of the thesis are well-founded from the perspectives of working life and theoretical foundation. The intention is to apply the results of the work to the development of the professional field. 
-            - Good (4–3): The purpose and objectives of the thesis aim at developing the professional field.
-            - Satisfactory (2–1): The thesis has objectives.
-            - Fail (0) / Unfinished: The purpose and objectives of the thesis are vaguely defined and/or the work does not follow the approved plan. 
-        """
-        
-        prompt = f"Analyze the following thesis content: {thesis_content}"
-        messages = [{"role": "user", "content": prompt}]
-        messages.insert(0, {"role": "system", "content": custom_instructions})
-        
-        try:
-            response_json = await self.make_request(provider, messages, model)
-            message = response_json["choices"][0]["message"]["content"]
-            return message
-        except Exception as e:
-            print(f"❌ Error in grade_objective with {provider}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
-
-    async def grade_objective_stream(self, file_path: str, provider: AIProvider = None, 
+    async def grade_strengths_stream(self, file_path: str, provider: AIProvider = None, 
                                    model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream objective grading using the specified AI provider with enhanced UX"""
+        """Stream strengths analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -531,29 +637,34 @@ class UnifiedAIModel:
             return
         
         prompt = f"""
-        Analyze the following thesis content and provide detailed grading for PURPOSES AND OBJECTIVES.
+        Analyze the following thesis content and provide detailed analysis of STRENGTHS AND POSITIVE ASPECTS.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the thesis based on the following criteria:
-        1. Clarity and specificity of research objectives
-        2. Alignment between objectives and methodology
-        3. Feasibility and scope of the research
-        4. Contribution to the field
-        5. Practical relevance
+        Please identify and evaluate the following strengths:
+        1. Strong research methodology and design
+        2. Clear and well-defined objectives
+        3. Comprehensive literature review
+        4. Robust data analysis
+        5. Practical relevance and impact
+        6. Quality of writing and presentation
+        7. Innovation and contribution to the field
         
-        Provide a comprehensive analysis with specific examples from the thesis.
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
         
         messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
         
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
 
-    async def grade_theoretical_foundation(self, file_path: str, provider: AIProvider = None, 
-                                        model: Optional[str] = None) -> str:
-        """Grade theoretical foundation using the specified AI provider"""
+    async def grade_improvements_stream(self, file_path: str, provider: AIProvider = None, 
+                                      model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream improvements analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -561,31 +672,116 @@ class UnifiedAIModel:
             thesis_content = extract_text_from_file(file_path)
         except Exception as e:
             print(f"Error reading thesis file: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
         
-        custom_instructions = """
-            Analyze the content (called thesis), then grade the Theoretical foundation from 1-5 based on these criteria:
-            - Excellent (5): The theoretical foundation conveys the author's own, critical and creative thinking. It is carefully considered, topical and purposeful in terms of the nature of the work. A sufficient amount of key scientific/artistic research and specialist knowledge has been used for the theoretical foundation. 
-            - Good (4–3): The thesis has a theoretical foundation and is based on versatile industry sources.
-            - Satisfactory (2–1): The thesis has a theoretical foundation and is based on industry sources.
-            - Fail (0) / Unfinished: The theoretical foundation is noticeably limited and selected uncritically.
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of AREAS FOR IMPROVEMENT.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please identify and evaluate the following areas for improvement:
+        1. Research methodology limitations
+        2. Data collection and analysis issues
+        3. Literature review gaps
+        4. Theoretical framework weaknesses
+        5. Writing and presentation issues
+        6. Structure and organization problems
+        7. Practical relevance limitations
+        
+        Provide specific recommendations with examples from the thesis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
         
-        prompt = f"Analyze the following thesis content: {thesis_content}"
         messages = [{"role": "user", "content": prompt}]
-        messages.insert(0, {"role": "system", "content": custom_instructions})
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
         
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_methodology_stream(self, file_path: str, provider: AIProvider = None, 
+                                     model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream methodology analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
         try:
-            response_json = await self.make_request(provider, messages, model)
-            message = response_json["choices"][0]["message"]["content"]
-            return message
+            thesis_content = extract_text_from_file(file_path)
         except Exception as e:
-            print(f"❌ Error in grade_theoretical_foundation with {provider}: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Error with {provider}: {str(e)}")
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of RESEARCH METHODOLOGY.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the research methodology based on:
+        1. Research design appropriateness
+        2. Data collection methods
+        3. Sample selection and size
+        4. Data analysis techniques
+        5. Validity and reliability
+        6. Ethical considerations
+        7. Methodological limitations
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_references_stream(self, file_path: str, provider: AIProvider = None, 
+                                    model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream references analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of REFERENCE FORMATTING (Harvard style).
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the references based on:
+        1. In-text citation formatting (Harvard style)
+        2. Bibliography/reference list formatting
+        3. Consistency in citation style
+        4. Completeness of reference information
+        5. Accuracy of citations
+        6. Quality and relevance of sources
+        7. Proper attribution of ideas
+        
+        Provide specific examples of correct and incorrect citations from the thesis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
 
     async def grade_theoretical_foundation_stream(self, file_path: str, provider: AIProvider = None, 
                                                model: Optional[str] = None) -> AsyncGenerator[str, None]:
-        """Stream theoretical foundation grading using the specified AI provider with enhanced UX"""
+        """Stream theoretical foundation analysis using the specified AI provider"""
         if provider is None:
             provider = AIProvider(config.get_active_provider())
             
@@ -597,22 +793,222 @@ class UnifiedAIModel:
             return
         
         prompt = f"""
-        Analyze the following thesis content and provide detailed grading for THEORETICAL FOUNDATION.
+        Analyze the following thesis content and provide detailed analysis of THEORETICAL FOUNDATION.
         
         Thesis Content:
         {thesis_content}
         
-        Please evaluate the thesis based on the following criteria:
+        Please evaluate the theoretical foundation based on:
         1. Depth and breadth of theoretical framework
         2. Appropriate use of relevant theories and concepts
         3. Integration of theoretical and practical elements
         4. Critical analysis of existing literature
         5. Theoretical contribution to the field
+        6. Literature review quality
+        7. Conceptual framework development
         
-        Provide a comprehensive analysis with specific examples from the thesis.
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
         """
         
         messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_structure_stream(self, file_path: str, provider: AIProvider = None, 
+                                   model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream structure analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of STRUCTURE AND ORGANIZATION.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the structure and organization based on:
+        1. Logical flow and coherence
+        2. Chapter organization and sequencing
+        3. Introduction and conclusion quality
+        4. Transitions between sections
+        5. Headings and subheadings clarity
+        6. Overall document structure
+        7. Information hierarchy and readability
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_writing_quality_stream(self, file_path: str, provider: AIProvider = None, 
+                                         model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream writing quality analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of WRITING QUALITY AND CLARITY.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the writing quality based on:
+        1. Grammar and syntax accuracy
+        2. Clarity and readability
+        3. Academic writing style
+        4. Sentence structure and flow
+        5. Vocabulary and terminology use
+        6. Conciseness and precision
+        7. Professional presentation
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_practical_relevance_stream(self, file_path: str, provider: AIProvider = None, 
+                                             model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream practical relevance analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of PRACTICAL RELEVANCE.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the practical relevance based on:
+        1. Real-world applicability
+        2. Industry impact and value
+        3. Problem-solving contribution
+        4. Implementation feasibility
+        5. Stakeholder benefits
+        6. Innovation and advancement
+        7. Economic and social impact
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_objectives_stream(self, file_path: str, provider: AIProvider = None, 
+                                   model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream objectives analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of PURPOSE AND OBJECTIVES.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the objectives based on:
+        1. Clarity and specificity of research objectives
+        2. Alignment between objectives and methodology
+        3. Feasibility and scope of the research
+        4. Contribution to the field
+        5. Practical relevance
+        6. Measurability of objectives
+        7. Logical progression of goals
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
+        
+        async for chunk in self.make_streaming_request(provider, messages, model):
+            yield chunk
+
+    async def grade_conclusions_stream(self, file_path: str, provider: AIProvider = None, 
+                                     model: Optional[str] = None) -> AsyncGenerator[str, None]:
+        """Stream conclusions analysis using the specified AI provider"""
+        if provider is None:
+            provider = AIProvider(config.get_active_provider())
+            
+        try:
+            thesis_content = extract_text_from_file(file_path)
+        except Exception as e:
+            print(f"Error reading thesis file: {str(e)}")
+            yield f"data: {json.dumps({'type': 'error', 'content': f'Error reading thesis file: {str(e)}'})}\n\n"
+            return
+        
+        prompt = f"""
+        Analyze the following thesis content and provide detailed analysis of CONCLUSIONS AND RECOMMENDATIONS.
+        
+        Thesis Content:
+        {thesis_content}
+        
+        Please evaluate the conclusions and recommendations based on:
+        1. Strength of conclusions drawn from findings
+        2. Quality and feasibility of recommendations
+        3. Alignment with research objectives
+        4. Practical implementation value
+        5. Future research directions
+        6. Limitations acknowledgment
+        7. Overall impact and contribution
+        
+        Provide specific examples from the thesis to support your analysis.
+        
+        IMPORTANT: Provide direct analysis and evaluation. Do NOT ask any follow-up questions or request clarification.
+        """
+        
+        messages = [{"role": "user", "content": prompt}]
+        messages.insert(0, {"role": "system", "content": "You are a thesis evaluation assistant. Provide direct analysis and feedback. Do NOT ask follow-up questions or request clarification. Give comprehensive answers based on the information provided."})
         
         async for chunk in self.make_streaming_request(provider, messages, model):
             yield chunk
@@ -624,7 +1020,7 @@ ai_model = UnifiedAIModel()
 @app.post("/token")
 async def login(form_data: OAuth2PasswordRequestForm = Depends()):
     print("form_data:", form_data);
-    user = authenticate_user(fake_users_db, form_data.username, form_data.password)
+    user = authenticate_user(form_data.username, form_data.password)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -645,7 +1041,7 @@ async def register(
     role: str = Form(...),
     supervisor_id: Optional[str] = Form(None),
 ):
-    if username in fake_users_db:
+    if user_repo.get_user_by_username(username):
         raise HTTPException(status_code=400, detail="Username already registered")
     
     if role not in ["student", "supervisor", "admin"]:
@@ -661,12 +1057,12 @@ async def register(
         supervisor_id=supervisor_id
     )
     
-    fake_users_db[username] = user
+    user_repo.add_user(user.dict())
     
     if role == "student" and supervisor_id:
-        supervisor = fake_users_db.get(supervisor_id)
+        supervisor = user_repo.get_user_by_username(supervisor_id)
         if supervisor:
-            supervisor.assigned_students.append(username)
+            user_repo.add_assigned_student(supervisor['id'], user.id)
     
     return {"message": "User created successfully", "user_id": user.id}
 
@@ -698,7 +1094,7 @@ async def upload_thesis(
     )
     
     print(f"📝 Created thesis with ID: {thesis.id}")
-    fake_theses_db[thesis.id] = thesis
+    thesis_repo.add_thesis(thesis.dict())
     
     return {"message": "Thesis uploaded successfully", "thesis_id": thesis.id}
 
@@ -726,8 +1122,8 @@ async def root():
 
 async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefined_questions: List[str], 
                            provider: AIProvider = None, model: Optional[str] = None) -> AsyncGenerator[str, None]:
-    """Stream AI feedback for a thesis using the specified provider with enhanced UX"""
-    thesis = fake_theses_db.get(thesis_id)
+    """Stream AI feedback for a thesis using the specified provider with enhanced UX and meaningful chunk buffering"""
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
         print(f"❌ Thesis not found: {thesis_id}")
         yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis not found'})}\n\n"
@@ -735,13 +1131,13 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
         return
     
     print(f"✅ Starting AI feedback for thesis: {thesis_id}")
-    print(f"📄 File path: {thesis.filepath}")
+    print(f"📄 File path: {thesis['filepath']}")
     print(f"🤖 Provider: {provider or 'active'}")
     print(f"🤖 Model: {model or 'default'}")
     
     try:
-        if not os.path.exists(thesis.filepath):
-            print(f"❌ Thesis file not found: {thesis.filepath}")
+        if not os.path.exists(thesis['filepath']):
+            print(f"❌ Thesis file not found: {thesis['filepath']}")
             yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis file not found'})}\n\n"
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             return
@@ -751,65 +1147,117 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
         
         # Step 1: Thesis Analysis
         print("🔄 Starting thesis analysis...")
-        async for chunk in ai_model.analyze_thesis_stream(thesis.filepath, custom_instructions, predefined_questions, provider, model):
+        buffer = ""
+        async for chunk in ai_model.analyze_thesis_stream(thesis['filepath'], custom_instructions, predefined_questions, provider, model):
             # Parse the chunk to extract structured data
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
                     if data.get('type') == 'content':
-                        yield chunk
+                        # Buffer the content
+                        buffer += data.get('content', '')
+                        
+                        # Send meaningful chunks (sentences, paragraphs, or after certain length)
+                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            buffer = ""
+                            await asyncio.sleep(0.1)  # Small delay for better UX
                     elif data.get('type') == 'error':
                         yield chunk
                         return
                     elif data.get('type') == 'complete':
+                        # Send any remaining buffer
+                        if buffer:
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
                         break
                 except json.JSONDecodeError:
                     # Handle legacy format
                     yield chunk
             else:
-                yield chunk
+                # Handle non-JSON chunks
+                buffer += chunk
+                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                    buffer = ""
+                    await asyncio.sleep(0.1)
+        
+        # Send any remaining buffer from analysis
+        if buffer:
+            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
             
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Thesis analysis completed. Starting objective grading...', 'step': 2, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING PURPOSES AND OBJECTIVES'})}\n\n"
         
         # Step 2: Objective Grading
         print("🔄 Starting objective grading...")
-        async for chunk in ai_model.grade_objective_stream(thesis.filepath, provider, model):
+        buffer = ""
+        async for chunk in ai_model.grade_objective_stream(thesis['filepath'], provider, model):
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
                     if data.get('type') == 'content':
-                        yield chunk
+                        buffer += data.get('content', '')
+                        
+                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            buffer = ""
+                            await asyncio.sleep(0.1)
                     elif data.get('type') == 'error':
                         yield chunk
                         return
                     elif data.get('type') == 'complete':
+                        if buffer:
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
                         break
                 except json.JSONDecodeError:
                     yield chunk
             else:
-                yield chunk
+                buffer += chunk
+                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                    buffer = ""
+                    await asyncio.sleep(0.1)
+        
+        # Send any remaining buffer from objective grading
+        if buffer:
+            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
                 
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Objective grading completed. Starting theoretical foundation grading...', 'step': 3, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING THEORETICAL FOUNDATION'})}\n\n"
         
         # Step 3: Theoretical Foundation Grading
         print("🔄 Starting theoretical foundation grading...")
-        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis.filepath, provider, model):
+        buffer = ""
+        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis['filepath'], provider, model):
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
                     if data.get('type') == 'content':
-                        yield chunk
+                        buffer += data.get('content', '')
+                        
+                        if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            buffer = ""
+                            await asyncio.sleep(0.1)
                     elif data.get('type') == 'error':
                         yield chunk
                         return
                     elif data.get('type') == 'complete':
+                        if buffer:
+                            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
                         break
                 except json.JSONDecodeError:
                     yield chunk
             else:
-                yield chunk
+                buffer += chunk
+                if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                    yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                    buffer = ""
+                    await asyncio.sleep(0.1)
+        
+        # Send any remaining buffer from theoretical foundation grading
+        if buffer:
+            yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
             
         print("✅ AI feedback streaming completed successfully")
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': 3, 'total': 3})}\n\n"
@@ -824,28 +1272,69 @@ async def stream_ai_feedback(thesis_id: str, custom_instructions: str, predefine
 @app.post("/request-ai-feedback")
 async def request_ai_feedback(
     thesis_id: str,
-    custom_instructions: str = Form("Please review this thesis and provide feedback"),
-    predefined_questions: List[str] = Form(["What are the strengths?", "What areas need improvement?"]),
-    provider: AIProvider = Form(None),
-    model: Optional[str] = Form(None),
+    custom_instructions: str = Form(""),
+    predefined_questions: List[str] = Form([]),
+    selected_options: str = Form(""),
     current_user: User = Depends(get_current_active_user)
 ):
-    print(f"🔍 Looking for thesis_id: {thesis_id}")
-    print(f"🔍 Current user: {current_user.username} (ID: {current_user.id})")
-    print(f"🔍 Provider: {provider or 'active'}")
-    print(f"🔍 Model: {model}")
+    """Request AI feedback for a thesis with streaming response"""
     
-    thesis = fake_theses_db.get(thesis_id)
+    # Validate thesis access
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
-        print(f"❌ Thesis not found in database. Available theses: {list(fake_theses_db.keys())}")
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    if thesis.student_id != current_user.id:
-        print(f"❌ Thesis belongs to student {thesis.student_id}, but current user is {current_user.id}")
+    if current_user.role == "student" and thesis['student_id'] != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
+    if current_user.role == "supervisor" and thesis['student_id'] not in current_user.assigned_students:
+        raise HTTPException(status_code=403, detail="Not your assigned student")
+    
+    # Parse selected options if provided
+    selected_options_list = []
+    if selected_options:
+        try:
+            selected_options_list = json.loads(selected_options)
+        except json.JSONDecodeError:
+            pass
+    
+    # Use the new grade functions if selected_options are provided
+    if selected_options_list:
+        return StreamingResponse(
+            stream_ai_feedback_with_grades(thesis_id, selected_options_list),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Cache-Control"
+            }
+        )
+    
+    # Use predefined questions if provided
+    if predefined_questions:
+        return StreamingResponse(
+            stream_ai_feedback(thesis_id, custom_instructions, predefined_questions),
+            media_type="text/event-stream",
+            headers={
+                "Cache-Control": "no-cache",
+                "Connection": "keep-alive",
+                "Access-Control-Allow-Origin": "*",
+                "Access-Control-Allow-Headers": "Cache-Control"
+            }
+        )
+    
+    # Fallback to default questions if none provided
+    predefined_questions = [
+        "What are the strengths of this thesis?",
+        "What areas need improvement?",
+        "How well is the methodology implemented?",
+        "Are references properly formatted?",
+        "How strong is the theoretical foundation?"
+    ]
+    
     return StreamingResponse(
-        stream_ai_feedback(thesis_id, custom_instructions, predefined_questions, provider, model),
+        stream_ai_feedback(thesis_id, custom_instructions, predefined_questions),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -861,11 +1350,11 @@ async def save_ai_feedback(
     feedback_content: str = Form(...),
     current_user: User = Depends(get_current_active_user)
 ):
-    thesis = fake_theses_db.get(thesis_id)
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    if thesis.student_id != current_user.id:
+    if thesis['student_id'] != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
     feedback = Feedback(
@@ -874,10 +1363,10 @@ async def save_ai_feedback(
         content=feedback_content,
         is_ai_feedback=True
     )
-    fake_feedback_db[feedback.id] = feedback
+    feedback_repo.add_feedback(feedback.dict())
     
-    thesis.ai_feedback_id = feedback.id
-    thesis.status = "reviewed_by_ai"
+    thesis_repo.update_thesis_ai_feedback(thesis_id, feedback.id)
+    thesis_repo.update_thesis_status(thesis_id, "reviewed_by_ai")
     
     ai_response_path = os.path.join(config.AI_RESPONSES_DIR, f"{thesis_id}_ai_response.txt")
     async with aiofiles.open(ai_response_path, 'w', encoding='utf-8') as f:
@@ -893,11 +1382,11 @@ async def submit_supervisor_feedback(
 ):
     check_supervisor(current_user)
     
-    thesis = fake_theses_db.get(thesis_id)
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    if thesis.student_id not in current_user.assigned_students:
+    if thesis['student_id'] not in current_user.assigned_students:
         raise HTTPException(status_code=403, detail="Not your assigned student")
     
     feedback = Feedback(
@@ -906,10 +1395,10 @@ async def submit_supervisor_feedback(
         content=feedback_content,
         is_ai_feedback=False
     )
-    fake_feedback_db[feedback.id] = feedback
+    feedback_repo.add_feedback(feedback.dict())
     
-    thesis.supervisor_feedback_id = feedback.id
-    thesis.status = "reviewed_by_supervisor"
+    thesis_repo.update_thesis_supervisor_feedback(thesis_id, feedback.id)
+    thesis_repo.update_thesis_status(thesis_id, "reviewed_by_supervisor")
     
     feedback_path = os.path.join(config.FEEDBACK_DIR, f"{thesis_id}_supervisor_feedback.txt")
     async with aiofiles.open(feedback_path, 'w') as f:
@@ -922,24 +1411,97 @@ async def get_supervisor_feedback(
     thesis_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    thesis = fake_theses_db.get(thesis_id)
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    if current_user.role == "student" and thesis.student_id != current_user.id:
+    if current_user.role == "student" and thesis['student_id'] != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
-    if current_user.role == "supervisor" and thesis.student_id not in current_user.assigned_students:
+    if current_user.role == "supervisor" and thesis['student_id'] not in current_user.assigned_students:
         raise HTTPException(status_code=403, detail="Not your assigned student")
     
-    if not thesis.supervisor_feedback_id:
+    if not thesis['supervisor_feedback_id']:
         raise HTTPException(status_code=404, detail="No supervisor feedback available")
     
-    feedback = fake_feedback_db.get(thesis.supervisor_feedback_id)
+    feedback = feedback_repo.get_feedback_by_id(thesis['supervisor_feedback_id'])
     if not feedback:
         raise HTTPException(status_code=404, detail="Feedback not found")
     
     return feedback
+
+@app.get("/supervisor-feedback")
+async def get_all_supervisor_feedback(current_user: User = Depends(get_current_active_user)):
+    """Get all supervisor feedback for the current user"""
+    if current_user.role == "student":
+        # Get all theses for this student that have supervisor feedback
+        theses = thesis_repo.get_theses_by_student_id(current_user.id)
+        feedback_list = []
+        
+        for thesis in theses:
+            if thesis.get('supervisor_feedback_id'):
+                feedback = feedback_repo.get_feedback_by_id(thesis['supervisor_feedback_id'])
+                if feedback:
+                    # Get supervisor name
+                    supervisor = user_repo.get_user_by_id(feedback['reviewer_id'])
+                    supervisor_name = supervisor['full_name'] if supervisor else 'Unknown Supervisor'
+                    
+                    feedback_list.append({
+                        'thesis_id': thesis['id'],
+                        'thesis_title': thesis['filename'],
+                        'feedback_text': feedback['content'],
+                        'feedback_date': feedback['created_at'],
+                        'supervisor_name': supervisor_name
+                    })
+        
+        return feedback_list
+    elif current_user.role == "supervisor":
+        # Get all theses for students assigned to this supervisor that have supervisor feedback
+        theses = thesis_repo.get_theses_by_supervisor(current_user.username)
+        feedback_list = []
+        
+        for thesis in theses:
+            if thesis.get('supervisor_feedback_id'):
+                feedback = feedback_repo.get_feedback_by_id(thesis['supervisor_feedback_id'])
+                if feedback and feedback['reviewer_id'] == current_user.id:
+                    # Get student name
+                    student = user_repo.get_user_by_id(thesis['student_id'])
+                    student_name = student['full_name'] if student else 'Unknown Student'
+                    
+                    feedback_list.append({
+                        'thesis_id': thesis['id'],
+                        'thesis_title': thesis['filename'],
+                        'feedback_text': feedback['content'],
+                        'feedback_date': feedback['created_at'],
+                        'student_name': student_name
+                    })
+        
+        return feedback_list
+    else:
+        # Admin can see all supervisor feedback
+        all_theses = thesis_repo.get_all_theses()
+        feedback_list = []
+        
+        for thesis in all_theses:
+            if thesis.get('supervisor_feedback_id'):
+                feedback = feedback_repo.get_feedback_by_id(thesis['supervisor_feedback_id'])
+                if feedback:
+                    # Get supervisor and student names
+                    supervisor = user_repo.get_user_by_id(feedback['reviewer_id'])
+                    student = user_repo.get_user_by_id(thesis['student_id'])
+                    supervisor_name = supervisor['full_name'] if supervisor else 'Unknown Supervisor'
+                    student_name = student['full_name'] if student else 'Unknown Student'
+                    
+                    feedback_list.append({
+                        'thesis_id': thesis['id'],
+                        'thesis_title': thesis['filename'],
+                        'feedback_text': feedback['content'],
+                        'feedback_date': feedback['created_at'],
+                        'supervisor_name': supervisor_name,
+                        'student_name': student_name
+                    })
+        
+        return feedback_list
 
 @app.post("/assign-supervisor")
 async def assign_supervisor(
@@ -949,22 +1511,18 @@ async def assign_supervisor(
 ):
     check_admin(current_user)
     
-    student = fake_users_db.get(student_username)
-    if not student or student.role != "student":
+    student = user_repo.get_user_by_username(student_username)
+    if not student or student['role'] != "student":
         raise HTTPException(status_code=404, detail="Student not found")
     
-    supervisor = fake_users_db.get(supervisor_username)
-    if not supervisor or supervisor.role != "supervisor":
+    supervisor = user_repo.get_user_by_username(supervisor_username)
+    if not supervisor or supervisor['role'] != "supervisor":
         raise HTTPException(status_code=404, detail="Supervisor not found")
     
-    if student.supervisor_id:
-        prev_supervisor = fake_users_db.get(student.supervisor_id)
-        if prev_supervisor and student_username in prev_supervisor.assigned_students:
-            prev_supervisor.assigned_students.remove(student_username)
-    
-    student.supervisor_id = supervisor_username
-    if student_username not in supervisor.assigned_students:
-        supervisor.assigned_students.append(student_username)
+    # Use the repository method for assignment
+    success = user_repo.assign_supervisor(student_username, supervisor_username)
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to assign supervisor")
     
     return {"message": f"Supervisor {supervisor_username} assigned to student {student_username}"}
 
@@ -974,18 +1532,27 @@ async def get_my_theses(current_user: User = Depends(get_current_active_user)):
     print(f"🔍 User role: {current_user.role}")
     
     if current_user.role == "student":
-        theses = [t for t in fake_theses_db.values() if t.student_id == current_user.id]
+        theses = thesis_repo.get_theses_by_student_id(current_user.id)
         print(f"🔍 Found {len(theses)} theses for student")
+        # Add student name for student's own theses
+        for thesis in theses:
+            thesis['student_name'] = current_user.full_name
     elif current_user.role == "supervisor":
-        student_ids = current_user.assigned_students
-        print(f"🔍 Supervisor assigned students: {student_ids}")
-        theses = [t for t in fake_theses_db.values() if t.student_id in student_ids]
+        theses = thesis_repo.get_theses_by_supervisor(current_user.username)
         print(f"🔍 Found {len(theses)} theses for supervisor")
+        # Add student names for supervisor's assigned students
+        for thesis in theses:
+            student = user_repo.get_user_by_id(thesis['student_id'])
+            thesis['student_name'] = student['full_name'] if student else 'Unknown Student'
     else:  # admin
-        theses = list(fake_theses_db.values())
+        theses = thesis_repo.get_all_theses()
         print(f"🔍 Found {len(theses)} theses for admin")
+        # Add student names for all theses
+        for thesis in theses:
+            student = user_repo.get_user_by_id(thesis['student_id'])
+            thesis['student_name'] = student['full_name'] if student else 'Unknown Student'
     
-    print(f"🔍 Returning theses: {[{'id': t.id, 'filename': t.filename, 'student_id': t.student_id} for t in theses]}")
+    print(f"🔍 Returning theses: {[{'id': t['id'], 'filename': t['filename'], 'student_id': t['student_id'], 'student_name': t.get('student_name', 'N/A')} for t in theses]}")
     
     return theses
 
@@ -994,22 +1561,22 @@ async def download_thesis(
     thesis_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    thesis = fake_theses_db.get(thesis_id)
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    if current_user.role == "student" and thesis.student_id != current_user.id:
+    if current_user.role == "student" and thesis['student_id'] != current_user.id:
         raise HTTPException(status_code=403, detail="Not your thesis")
     
-    if current_user.role == "supervisor" and thesis.student_id not in current_user.assigned_students:
+    if current_user.role == "supervisor" and thesis['student_id'] not in current_user.assigned_students:
         raise HTTPException(status_code=403, detail="Not your assigned student")
     
-    if not os.path.exists(thesis.filepath):
+    if not os.path.exists(thesis['filepath']):
         raise HTTPException(status_code=404, detail="Thesis file not found")
     
     return FileResponse(
-        thesis.filepath,
-        filename=thesis.filename,
+        thesis['filepath'],
+        filename=thesis['filename'],
         media_type="application/octet-stream"
     )
 
@@ -1018,15 +1585,18 @@ async def get_theses_to_review(current_user: User = Depends(get_current_active_u
     check_supervisor(current_user)
     theses_to_review = []
     
-    for thesis in fake_theses_db.values():
-        if thesis.status in ["reviewed_by_ai", "pending"] and thesis.student_id in current_user.assigned_students:
-            student = next((user for user in fake_users_db.values() if user.id == thesis.student_id), None)
+    # Get theses assigned to this supervisor
+    supervisor_theses = thesis_repo.get_theses_by_supervisor(current_user.username)
+    
+    for thesis in supervisor_theses:
+        if thesis['status'] in ["reviewed_by_ai", "pending"]:
+            student = user_repo.get_user_by_id(thesis['student_id'])
             if student:
                 thesis_data = {
-                    "student_name": student.full_name,
-                    "filename": thesis.filename,
-                    "upload_date": thesis.upload_date.isoformat(),
-                    "status": thesis.status
+                    "student_name": student['full_name'],
+                    "filename": thesis['filename'],
+                    "upload_date": thesis['upload_date'],
+                    "status": thesis['status']
                 }
                 theses_to_review.append(thesis_data)
 
@@ -1035,7 +1605,7 @@ async def get_theses_to_review(current_user: User = Depends(get_current_active_u
 @app.get("/users")
 async def get_users(current_user: User = Depends(get_current_active_user)):
     check_admin(current_user)
-    return list(fake_users_db.values())
+    return list(user_repo.get_all_users())
 
 @app.get("/me")
 async def read_users_me(current_user: User = Depends(get_current_active_user)):
@@ -1043,32 +1613,44 @@ async def read_users_me(current_user: User = Depends(get_current_active_user)):
 
 @app.get("/supervisors")
 async def get_supervisors(current_user: User = Depends(get_current_active_user)):
-    supervisors = [u for u in fake_users_db.values() if u.role == "supervisor"]
+    supervisors = [u for u in user_repo.get_all_users() if u['role'] == "supervisor"]
     return supervisors
 
 @app.get("/students")
 async def get_students(current_user: User = Depends(get_current_active_user)):
     if current_user.role == "supervisor":
-        students = [fake_users_db[s] for s in current_user.assigned_students]
+        # Get students assigned to this supervisor
+        supervisor = user_repo.get_user_by_username(current_user.username)
+        if supervisor and supervisor['assigned_students']:
+            students = []
+            for student_username in supervisor['assigned_students']:
+                student = user_repo.get_user_by_username(student_username)
+                if student:
+                    students.append(student)
+        else:
+            students = []
     else:
         check_admin(current_user)
-        students = [u for u in fake_users_db.values() if u.role == "student"]
+        students = user_repo.get_users_by_role("student")
     return students
 
 @app.get("/supervisor-assignments")
 async def get_supervisor_assignments(current_user: User = Depends(get_current_active_user)):
     check_admin(current_user)
     assignments = []
-    for user in fake_users_db.values():
-        if user.role == "student":
-            supervisor_name = None
-            if user.supervisor_id and user.supervisor_id in fake_users_db:
-                supervisor_name = fake_users_db[user.supervisor_id].full_name
-            assignments.append({
-                "student_id": user.username,
-                "student_name": user.full_name,
-                "supervisor_name": supervisor_name
-            })
+    students = user_repo.get_users_by_role("student")
+    
+    for student in students:
+        supervisor_name = None
+        if student['supervisor_id']:
+            supervisor = user_repo.get_user_by_username(student['supervisor_id'])
+            if supervisor:
+                supervisor_name = supervisor['full_name']
+        assignments.append({
+            "student_id": student['username'],
+            "student_name": student['full_name'],
+            "supervisor_name": supervisor_name
+        })
     return assignments
 
 @app.get("/all-theses")
@@ -1076,11 +1658,13 @@ async def get_all_theses(current_user: User = Depends(get_current_active_user)):
     check_admin(current_user)
     
     theses_with_student_names = []
-    for thesis in fake_theses_db.values():
-        student = next((user for user in fake_users_db.values() if user.id == thesis.student_id and user.role == "student"), None)
-        if student:
-            thesis_dict = thesis.dict()
-            thesis_dict["student_name"] = student.full_name
+    theses = thesis_repo.get_all_theses()
+    
+    for thesis in theses:
+        student = user_repo.get_user_by_id(thesis['student_id'])
+        if student and student['role'] == "student":
+            thesis_dict = thesis.copy()
+            thesis_dict["student_name"] = student['full_name']
             theses_with_student_names.append(thesis_dict)
     
     return theses_with_student_names
@@ -1151,13 +1735,13 @@ async def request_ai_feedback_enhanced(
     print(f"🔍 Model: {model}")
     print(f"🔍 Pacing delay: {pacing_delay}")
     
-    thesis = fake_theses_db.get(thesis_id)
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
-        print(f"❌ Thesis not found in database. Available theses: {list(fake_theses_db.keys())}")
+        print(f"❌ Thesis not found in database. Available theses: {list(thesis_repo.get_all_theses())}")
         raise HTTPException(status_code=404, detail="Thesis not found")
     
-    if thesis.student_id != current_user.id:
-        print(f"❌ Thesis belongs to student {thesis.student_id}, but current user is {current_user.id}")
+    if thesis['student_id'] != current_user.id:
+        print(f"❌ Thesis belongs to student {thesis['student_id']}, but current user is {current_user.id}")
         raise HTTPException(status_code=403, detail="Not your thesis")
     
     return StreamingResponse(
@@ -1176,14 +1760,14 @@ async def stream_ai_feedback_enhanced(thesis_id: str, custom_instructions: str, 
                                      provider: AIProvider = None, model: Optional[str] = None, 
                                      pacing_delay: float = 0.01) -> AsyncGenerator[str, None]:
     """Enhanced streaming function with better pacing and error recovery"""
-    thesis = fake_theses_db.get(thesis_id)
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
     if not thesis:
         yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis not found'})}\n\n"
         yield f"data: {json.dumps({'type': 'complete'})}\n\n"
         return
     
     try:
-        if not os.path.exists(thesis.filepath):
+        if not os.path.exists(thesis['filepath']):
             yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis file not found'})}\n\n"
             yield f"data: {json.dumps({'type': 'complete'})}\n\n"
             return
@@ -1203,7 +1787,7 @@ async def stream_ai_feedback_enhanced(thesis_id: str, custom_instructions: str, 
         # Step 1: Thesis Analysis
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Analyzing thesis content...', 'step': 1, 'total': 3})}\n\n"
         
-        async for chunk in ai_model.analyze_thesis_stream(thesis.filepath, custom_instructions, predefined_questions, provider, model):
+        async for chunk in ai_model.analyze_thesis_stream(thesis['filepath'], custom_instructions, predefined_questions, provider, model):
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
@@ -1225,7 +1809,7 @@ async def stream_ai_feedback_enhanced(thesis_id: str, custom_instructions: str, 
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Grading objectives...', 'step': 2, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING PURPOSES AND OBJECTIVES'})}\n\n"
         
-        async for chunk in ai_model.grade_objective_stream(thesis.filepath, provider, model):
+        async for chunk in ai_model.grade_objective_stream(thesis['filepath'], provider, model):
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
@@ -1248,7 +1832,7 @@ async def stream_ai_feedback_enhanced(thesis_id: str, custom_instructions: str, 
         yield f"data: {json.dumps({'type': 'progress', 'content': 'Grading theoretical foundation...', 'step': 3, 'total': 3})}\n\n"
         yield f"data: {json.dumps({'type': 'section', 'content': 'GRADING THEORETICAL FOUNDATION'})}\n\n"
         
-        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis.filepath, provider, model):
+        async for chunk in ai_model.grade_theoretical_foundation_stream(thesis['filepath'], provider, model):
             if chunk.startswith('data: '):
                 try:
                     data = json.loads(chunk[6:])
@@ -1382,6 +1966,257 @@ This test confirms that the AI feedback system is operational."""
             "Access-Control-Allow-Headers": "*",
         }
     )
+
+@app.get("/extract-thesis-text/{thesis_id}")
+async def extract_thesis_text(
+    thesis_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Extract text content from thesis file for preview"""
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
+    if not thesis:
+        raise HTTPException(status_code=404, detail="Thesis not found")
+    
+    if current_user.role == "student" and thesis['student_id'] != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your thesis")
+    
+    if current_user.role == "supervisor" and thesis['student_id'] not in current_user.assigned_students:
+        raise HTTPException(status_code=403, detail="Not your assigned student")
+    
+    if not os.path.exists(thesis['filepath']):
+        raise HTTPException(status_code=404, detail="Thesis file not found")
+    
+    try:
+        text_content = extract_text_from_file(thesis['filepath'])
+        return {"text": text_content}
+    except Exception as e:
+        print(f"Error extracting text from thesis: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error extracting text: {str(e)}")
+
+@app.get("/ai-feedback-options")
+async def get_ai_feedback_options():
+    """Get available AI feedback options for dynamic checkbox generation"""
+    return {
+        "options": [
+            {
+                "id": "strengths",
+                "label": "Identify strengths and positive aspects",
+                "description": "Highlight what the thesis does well",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "improvements",
+                "label": "Areas for improvement",
+                "description": "Identify specific areas that need enhancement",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "methodology",
+                "label": "Research methodology analysis",
+                "description": "Evaluate the research design and methods used",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "references",
+                "label": "Reference formatting (Harvard style)",
+                "description": "Check citation and bibliography formatting",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "theoretical_framework",
+                "label": "Theoretical foundation",
+                "description": "Assess the theoretical framework and literature review",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "structure",
+                "label": "Structure and organization",
+                "description": "Evaluate the overall structure and flow",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "writing_quality",
+                "label": "Writing quality and clarity",
+                "description": "Assess writing style, grammar, and clarity",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "practical_relevance",
+                "label": "Practical relevance",
+                "description": "Evaluate real-world applicability and impact",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "objectives",
+                "label": "Purpose and objectives",
+                "description": "Grade the clarity and feasibility of objectives",
+                "enabled": True,
+                "default": True
+            },
+            {
+                "id": "conclusions",
+                "label": "Conclusions and recommendations",
+                "description": "Assess the quality of conclusions and recommendations",
+                "enabled": True,
+                "default": True
+            }
+        ]
+    }
+
+@app.get("/thesis-preview-images/{thesis_id}")
+async def get_thesis_preview_images(
+    thesis_id: str,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get preview images for a thesis document"""
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
+    if not thesis:
+        raise HTTPException(status_code=404, detail="Thesis not found")
+    
+    if current_user.role == "student" and thesis['student_id'] != current_user.id:
+        raise HTTPException(status_code=403, detail="Not your thesis")
+    
+    if current_user.role == "supervisor" and thesis['student_id'] not in current_user.assigned_students:
+        raise HTTPException(status_code=403, detail="Not your assigned student")
+    
+    if not os.path.exists(thesis['filepath']):
+        raise HTTPException(status_code=404, detail="Thesis file not found")
+    
+    try:
+        images = convert_document_to_images(thesis['filepath'], max_pages=5)
+        return {
+            "thesis_id": thesis_id,
+            "filename": thesis['filename'],
+            "images": images
+        }
+    except Exception as e:
+        print(f"Error generating preview images: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error generating preview images: {str(e)}")
+
+# Add new streaming function after the existing stream_ai_feedback function
+async def stream_ai_feedback_with_grades(thesis_id: str, selected_options: List[str], 
+                                        provider: AIProvider = None, model: Optional[str] = None) -> AsyncGenerator[str, None]:
+    """Stream AI feedback using the new grade functions based on selected options"""
+    thesis = thesis_repo.get_thesis_by_id(thesis_id)
+    if not thesis:
+        print(f"❌ Thesis not found: {thesis_id}")
+        yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis not found'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+        return
+    
+    print(f"✅ Starting AI feedback with grades for thesis: {thesis_id}")
+    print(f"📄 File path: {thesis['filepath']}")
+    print(f"🤖 Provider: {provider or 'active'}")
+    print(f"🤖 Model: {model or 'default'}")
+    print(f"📋 Selected options: {selected_options}")
+    
+    try:
+        if not os.path.exists(thesis['filepath']):
+            print(f"❌ Thesis file not found: {thesis['filepath']}")
+            yield f"data: {json.dumps({'type': 'error', 'content': 'Thesis file not found'})}\n\n"
+            yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            return
+        
+        # Map of option IDs to grade functions
+        grade_functions = {
+            'strengths': ai_model.grade_strengths_stream,
+            'improvements': ai_model.grade_improvements_stream,
+            'methodology': ai_model.grade_methodology_stream,
+            'references': ai_model.grade_references_stream,
+            'theoretical_framework': ai_model.grade_theoretical_foundation_stream,
+            'structure': ai_model.grade_structure_stream,
+            'writing_quality': ai_model.grade_writing_quality_stream,
+            'practical_relevance': ai_model.grade_practical_relevance_stream,
+            'objectives': ai_model.grade_objectives_stream,
+            'conclusions': ai_model.grade_conclusions_stream
+        }
+        
+        # Option titles for section headers
+        option_titles = {
+            'strengths': 'STRENGTHS AND POSITIVE ASPECTS',
+            'improvements': 'AREAS FOR IMPROVEMENT',
+            'methodology': 'RESEARCH METHODOLOGY ANALYSIS',
+            'references': 'REFERENCE FORMATTING (Harvard style)',
+            'theoretical_framework': 'THEORETICAL FOUNDATION',
+            'structure': 'STRUCTURE AND ORGANIZATION',
+            'writing_quality': 'WRITING QUALITY AND CLARITY',
+            'practical_relevance': 'PRACTICAL RELEVANCE',
+            'objectives': 'PURPOSE AND OBJECTIVES',
+            'conclusions': 'CONCLUSIONS AND RECOMMENDATIONS'
+        }
+        
+        total_options = len(selected_options)
+        
+        for i, option in enumerate(selected_options, 1):
+            if option not in grade_functions:
+                print(f"⚠️ Unknown option: {option}")
+                continue
+                
+            print(f"🔄 Processing option {i}/{total_options}: {option}")
+            
+            # Send progress update
+            yield f"data: {json.dumps({'type': 'progress', 'content': f'Analyzing {option_titles.get(option, option)}...', 'step': i, 'total': total_options})}\n\n"
+            
+            # Send section header
+            yield f"data: {json.dumps({'type': 'section', 'content': option_titles.get(option, option.upper().replace('_', ' '))})}\n\n"
+            
+            # Get the grade function
+            grade_func = grade_functions[option]
+            
+            # Stream the grade analysis
+            buffer = ""
+            async for chunk in grade_func(thesis['filepath'], provider, model):
+                if chunk.startswith('data: '):
+                    try:
+                        data = json.loads(chunk[6:])
+                        if data.get('type') == 'content':
+                            buffer += data.get('content', '')
+                            
+                            if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                                buffer = ""
+                                await asyncio.sleep(0.1)
+                        elif data.get('type') == 'error':
+                            yield chunk
+                            return
+                        elif data.get('type') == 'complete':
+                            if buffer:
+                                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                            break
+                    except json.JSONDecodeError:
+                        yield chunk
+                else:
+                    buffer += chunk
+                    if len(buffer) >= 50 or '\n\n' in buffer or buffer.endswith(('.', '!', '?')):
+                        yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+                        buffer = ""
+                        await asyncio.sleep(0.1)
+            
+            # Send any remaining buffer
+            if buffer:
+                yield f"data: {json.dumps({'type': 'content', 'content': buffer})}\n\n"
+            
+            # Add spacing between sections
+            if i < total_options:
+                yield f"data: {json.dumps({'type': 'content', 'content': '\n\n---\n\n'})}\n\n"
+        
+        print("✅ AI feedback with grades streaming completed successfully")
+        yield f"data: {json.dumps({'type': 'progress', 'content': 'Analysis completed successfully!', 'step': total_options, 'total': total_options})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
+            
+    except Exception as e:
+        print("❌ Full traceback:\n", traceback.format_exc())
+        print(f"❌ Error in stream_ai_feedback_with_grades: {str(e)}")
+        yield f"data: {json.dumps({'type': 'error', 'content': f'AI service error: {str(e)}'})}\n\n"
+        yield f"data: {json.dumps({'type': 'complete'})}\n\n"
 
 if __name__ == "__main__":
     import uvicorn

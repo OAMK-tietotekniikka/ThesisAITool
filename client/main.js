@@ -64,6 +64,10 @@ function initEventListeners() {
     // AI Feedback
     document.getElementById('requestFeedbackBtn').addEventListener('click', requestAIFeedback);
     
+    // AI Feedback checkbox controls
+    document.getElementById('selectAllBtn').addEventListener('click', selectAllAIFeedbackOptions);
+    document.getElementById('deselectAllBtn').addEventListener('click', deselectAllAIFeedbackOptions);
+    
     // Supervisor Feedback
     document.getElementById('submitFeedbackBtn').addEventListener('click', submitSupervisorFeedback);
     document.getElementById('cancelFeedbackBtn').addEventListener('click', () => {
@@ -218,6 +222,7 @@ async function loadDashboardData() {
 
 // Load student dashboard data
 async function loadStudentDashboard() {
+    try {
     // Load theses count
     const thesesResponse = await axios.get(`${API_BASE_URL}/my-theses`, {
         headers: { 'Authorization': `Bearer ${authToken}` }
@@ -255,6 +260,7 @@ async function loadStudentDashboard() {
     
     // Load supervisor info if available
     if (currentUser.supervisor_id) {
+            try {
         const supervisorResponse = await axios.get(`${API_BASE_URL}/users`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -273,6 +279,14 @@ async function loadStudentDashboard() {
                 </div>
             `;
         }
+            } catch (error) {
+                console.error('Failed to load supervisor info:', error);
+                // Don't show error to user, just leave supervisor info empty
+            }
+        }
+    } catch (error) {
+        console.error('Failed to load student dashboard:', error);
+        // Handle error gracefully without breaking the dashboard
     }
 }
 
@@ -580,11 +594,16 @@ async function viewThesis(thesisId) {
     showLoading();
     
     try {
-        const response = await axios.get(`${API_BASE_URL}/theses/${thesisId}`, {
+        // First get thesis info
+        const response = await axios.get(`${API_BASE_URL}/my-theses`, {
             headers: { 'Authorization': `Bearer ${authToken}` }
         });
         
-        const thesis = response.data;
+        const thesis = response.data.find(t => t.id === thesisId);
+        if (!thesis) {
+            throw new Error('Thesis not found');
+        }
+        
         document.getElementById('thesisModalTitle').textContent = thesis.filename;
         
         // Set basic info
@@ -593,33 +612,32 @@ async function viewThesis(thesisId) {
             <p><strong>Student:</strong> ${thesis.student_name || 'N/A'}</p>
             <p><strong>Upload Date:</strong> ${new Date(thesis.upload_date).toLocaleDateString()}</p>
             <p><strong>Status:</strong> <span class="${getStatusClass(thesis.status)}">${thesis.status.replace(/_/g, ' ')}</span></p>
-            <p><strong>File Size:</strong> ${(thesis.file_size / 1024 / 1024).toFixed(2)} MB</p>
         `;
         
         // Set AI feedback if available
         const aiFeedback = document.getElementById('thesisAIFeedback');
-        if (thesis.ai_feedback) {
-            aiFeedback.innerHTML = thesis.ai_feedback;
+        if (thesis.ai_feedback_id) {
+            aiFeedback.innerHTML = '<p>AI feedback available. Check the AI Feedback section for details.</p>';
         } else {
             aiFeedback.innerHTML = '<p>No AI feedback available yet.</p>';
         }
         
         // Set supervisor feedback if available
         const supervisorFeedback = document.getElementById('thesisSupervisorFeedback');
-        if (thesis.supervisor_feedback) {
-            supervisorFeedback.innerHTML = thesis.supervisor_feedback;
+        if (thesis.supervisor_feedback_id) {
+            supervisorFeedback.innerHTML = '<p>Supervisor feedback available. Check the Supervisor Feedback section for details.</p>';
         } else {
             supervisorFeedback.innerHTML = '<p>No supervisor feedback available yet.</p>';
         }
         
-        // Set document preview (simplified - in a real app you'd use a proper viewer)
+        // Set document preview
         const docPreview = document.getElementById('thesisDocumentPreview');
         docPreview.innerHTML = `
             <div class="mt-2 flex items-center">
                 <i class="fas fa-file-word text-4xl text-blue-500 mr-3"></i>
                 <div>
                     <p class="text-sm font-medium">${thesis.filename}</p>
-                    <p class="text-xs text-gray-500">${thesis.file_type.toUpperCase()} • ${(thesis.file_size / 1024 / 1024).toFixed(2)} MB</p>
+                    <p class="text-xs text-gray-500">Uploaded on ${new Date(thesis.upload_date).toLocaleDateString()}</p>
                 </div>
             </div>
         `;
@@ -628,6 +646,7 @@ async function viewThesis(thesisId) {
         showViewThesisModal();
     } catch (error) {
         console.error('Failed to load thesis:', error);
+        alert('Failed to load thesis details. Please try again.');
     }
     
     hideLoading();
@@ -682,13 +701,91 @@ async function loadAIFeedback() {
             });
         }
         
-        // Hide feedback results by default
-        document.getElementById('feedbackResults').classList.add('hidden');
+        // Load AI feedback options
+        await loadAIFeedbackOptions();
+        
     } catch (error) {
-        console.error('Failed to load theses for feedback:', error);
+        console.error('Failed to load AI feedback:', error);
     }
     
     hideLoading();
+}
+
+// Load AI feedback options from server
+async function loadAIFeedbackOptions() {
+    try {
+        const response = await axios.get(`${API_BASE_URL}/ai-feedback-options`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const checkboxesContainer = document.getElementById('aiFeedbackCheckboxes');
+        checkboxesContainer.innerHTML = '';
+        
+        response.data.options.forEach(option => {
+            if (option.enabled) {
+                const checkboxDiv = document.createElement('div');
+                checkboxDiv.className = 'flex items-start';
+                checkboxDiv.innerHTML = `
+                    <div class="flex items-center h-5">
+                        <input type="checkbox" 
+                               id="ai_option_${option.id}" 
+                               class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded"
+                               ${option.default ? 'checked' : ''}>
+                    </div>
+                    <div class="ml-3">
+                        <label for="ai_option_${option.id}" class="text-sm font-medium text-gray-700">
+                            ${option.label}
+                        </label>
+                        <p class="text-xs text-gray-500">${option.description}</p>
+                    </div>
+                `;
+                checkboxesContainer.appendChild(checkboxDiv);
+            }
+        });
+        
+    } catch (error) {
+        console.error('Failed to load AI feedback options:', error);
+        // Fallback to default options
+        const checkboxesContainer = document.getElementById('aiFeedbackCheckboxes');
+        checkboxesContainer.innerHTML = `
+            <div class="flex items-center">
+                <input type="checkbox" id="ai_option_strengths" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_strengths" class="ml-2 block text-sm text-gray-700">Identify strengths and positive aspects</label>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" id="ai_option_improvements" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_improvements" class="ml-2 block text-sm text-gray-700">Areas for improvement</label>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" id="ai_option_methodology" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_methodology" class="ml-2 block text-sm text-gray-700">Research methodology analysis</label>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" id="ai_option_references" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_references" class="ml-2 block text-sm text-gray-700">Reference formatting (Harvard style)</label>
+            </div>
+            <div class="flex items-center">
+                <input type="checkbox" id="ai_option_theoretical_framework" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked>
+                <label for="ai_option_theoretical_framework" class="ml-2 block text-sm text-gray-700">Theoretical foundation</label>
+            </div>
+        `;
+    }
+}
+
+// Select all AI feedback options
+function selectAllAIFeedbackOptions() {
+    const checkboxes = document.querySelectorAll('#aiFeedbackCheckboxes input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = true;
+    });
+}
+
+// Deselect all AI feedback options
+function deselectAllAIFeedbackOptions() {
+    const checkboxes = document.querySelectorAll('#aiFeedbackCheckboxes input[type="checkbox"]');
+    checkboxes.forEach(checkbox => {
+        checkbox.checked = false;
+    });
 }
 
 // Request AI feedback - Completely rewritten
@@ -702,13 +799,22 @@ async function requestAIFeedback() {
     const selectedOption = document.getElementById('thesisSelect').selectedOptions[0];
     const thesisTitle = selectedOption.textContent;
     const customInstructions = "Please review this thesis and provide comprehensive feedback.";
-    const selectedQuestions = [
-        "Strengths?",
-        "Areas for improvement?",
-        "Methodology alignment?",
-        "Reference formatting?",
-        "Theoretical foundation?"
-    ];
+    
+    // Collect selected feedback options
+    const selectedOptions = [];
+    const checkboxes = document.querySelectorAll('#aiFeedbackCheckboxes input[type="checkbox"]:checked');
+    checkboxes.forEach(checkbox => {
+        const optionId = checkbox.id.replace('ai_option_', '');
+        selectedOptions.push(optionId);
+    });
+    
+    if (selectedOptions.length === 0) {
+        alert('Please select at least one feedback option');
+        return;
+    }
+
+    // Reset any previous feedback display
+    resetFeedbackDisplay();
 
     // Show results section
     document.getElementById('feedbackResults').classList.remove('hidden');
@@ -718,18 +824,72 @@ async function requestAIFeedback() {
 
     const feedbackContainer = document.getElementById('feedbackContent');
     const statusBadge = document.getElementById('streamStatus');
+    const streamStatusBelow = document.getElementById('streamStatusBelow');
+    const streamProgress = document.getElementById('streamProgress');
     const requestFeedbackBtn = document.getElementById('requestFeedbackBtn');
+    const stopStreamingBtn = document.getElementById('stopStreamingBtn');
     
-    // Disable button and show loading
+    // Check if feedbackContainer exists
+    if (!feedbackContainer) {
+        console.error('feedbackContent element not found');
+        alert('Error: Feedback container not found. Please refresh the page and try again.');
+        return;
+    }
+    
+    // Disable request button and show stop button
     requestFeedbackBtn.disabled = true;
     requestFeedbackBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Requesting...';
+    stopStreamingBtn.classList.remove('hidden');
     statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Generating...';
     feedbackContainer.innerHTML = '';
+    
+    // Show status below feedback content
+    streamStatusBelow.classList.remove('hidden');
+    streamProgress.textContent = 'Starting analysis...';
+
+    // Create AbortController for request cancellation
+    const abortController = new AbortController();
+    let isStreamingStopped = false;
+
+    // Add event listener for stop button
+    const stopStreaming = () => {
+        console.log('Stopping AI feedback streaming...');
+        isStreamingStopped = true;
+        abortController.abort(); // Abort the fetch request
+        statusBadge.innerHTML = '<i class="fas fa-stop-circle mr-1"></i>Stopped';
+        statusBadge.classList.remove('bg-white', 'bg-opacity-20');
+        statusBadge.classList.add('bg-yellow-500', 'bg-opacity-20');
+        streamStatusBelow.classList.add('hidden');
+        stopStreamingBtn.classList.add('hidden');
+        requestFeedbackBtn.disabled = false;
+        requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
+    };
+    
+    stopStreamingBtn.onclick = stopStreaming;
 
     try {
         const data = new URLSearchParams();
         data.append('custom_instructions', customInstructions);
-        selectedQuestions.forEach((q, i) => data.append(`predefined_questions[${i}]`, q));
+        data.append('selected_options', JSON.stringify(selectedOptions));
+        
+        // Add each selected option as a predefined question
+        selectedOptions.forEach((option, i) => {
+            const questionMap = {
+                'strengths': 'What are the strengths and positive aspects of this thesis?',
+                'improvements': 'What areas need improvement in this thesis?',
+                'methodology': 'How well is the research methodology implemented?',
+                'references': 'Are the references properly formatted according to Harvard style?',
+                'theoretical_framework': 'How strong is the theoretical foundation and literature review?',
+                'structure': 'How well is the thesis structured and organized?',
+                'writing_quality': 'How is the overall writing quality and clarity?',
+                'practical_relevance': 'What is the practical relevance and real-world impact?',
+                'objectives': 'How clear and feasible are the research objectives?',
+                'conclusions': 'How strong are the conclusions and recommendations?'
+            };
+            
+            const question = questionMap[option] || `Please evaluate the ${option.replace('_', ' ')} of this thesis.`;
+            data.append(`predefined_questions[${i}]`, question);
+        });
 
         const url = `${API_BASE_URL}/request-ai-feedback?thesis_id=${encodeURIComponent(thesisId)}`;
         const headers = {
@@ -740,26 +900,53 @@ async function requestAIFeedback() {
         const response = await fetch(url, { 
             method: 'POST', 
             headers, 
-            body: data.toString() 
+            body: data.toString(),
+            signal: abortController.signal
         });
         
         if (!response.ok) {
             throw new Error(`HTTP error! status: ${response.status}`);
         }
 
+        if (!response.body) {
+            throw new Error('ReadableStream not supported');
+        }
+
+        // Get reader from response body
         const reader = response.body.getReader();
-        const decoder = new TextDecoder('utf-8');
+        const decoder = new TextDecoder();
         let buffer = '';
         let accumulatedContent = '';
+        let hasStartedStreaming = false;
 
+        statusBadge.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Streaming content...';
+        streamProgress.textContent = 'Streaming content...';
+
+        // Read chunks and parse Server-Sent Events
         while (true) {
-            const { value, done } = await reader.read();
-            if (done) break;
-
+            // Check if streaming was stopped
+            if (isStreamingStopped) {
+                console.log('Streaming stopped by user');
+                break;
+            }
+            
+            const { done, value } = await reader.read();
+            
+            if (done) {
+                statusBadge.innerHTML = '<i class="fas fa-check-circle mr-1"></i>Complete';
+                statusBadge.classList.remove('bg-white', 'bg-opacity-20');
+                statusBadge.classList.add('bg-green-500', 'bg-opacity-20');
+                streamStatusBelow.classList.add('hidden');
+                stopStreamingBtn.classList.add('hidden');
+                break;
+            }
+            
+            // Decode chunk and add to buffer
             buffer += decoder.decode(value, { stream: true });
             const lines = buffer.split('\n');
             buffer = lines.pop() || '';
 
+            // Process each line
             for (const line of lines) {
                 if (line.trim() === '') continue;
                 
@@ -779,13 +966,41 @@ async function requestAIFeedback() {
                             // Sanitize HTML
                             const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
                             feedbackContainer.innerHTML = sanitizedHtml;
+                            
+                            // Highlight code blocks
+                            feedbackContainer.querySelectorAll('pre code').forEach((block) => {
+                                hljs.highlightElement(block);
+                            });
+                            
+                            // Scroll to bottom on first content load
+                            if (!hasStartedStreaming) {
+                                setTimeout(() => {
                             feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
+                                }, 100);
+                                hasStartedStreaming = true;
+                            }
                         } else if (jsonData.type === 'progress') {
                             statusBadge.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${jsonData.content}`;
+                            streamProgress.textContent = jsonData.content;
+                        } else if (jsonData.type === 'status') {
+                            streamProgress.textContent = jsonData.content;
+                        } else if (jsonData.type === 'section') {
+                            // Add section header to the content
+                            accumulatedContent += `\n\n# ${jsonData.content}\n\n`;
+                            const htmlContent = marked.parse(accumulatedContent);
+                            const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
+                            feedbackContainer.innerHTML = sanitizedHtml;
+                            
+                            // Highlight code blocks
+                            feedbackContainer.querySelectorAll('pre code').forEach((block) => {
+                                hljs.highlightElement(block);
+                            });
                         } else if (jsonData.type === 'error') {
                             throw new Error(jsonData.content);
                         } else if (jsonData.type === 'complete') {
                             // Stream completed
+                            streamStatusBelow.classList.add('hidden');
+                            stopStreamingBtn.classList.add('hidden');
                             break;
                         }
                     } catch (e) {
@@ -800,14 +1015,22 @@ async function requestAIFeedback() {
                     const htmlContent = marked.parse(accumulatedContent);
                     const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
                     feedbackContainer.innerHTML = sanitizedHtml;
+                    
+                    // Highlight code blocks
+                    feedbackContainer.querySelectorAll('pre code').forEach((block) => {
+                        hljs.highlightElement(block);
+                    });
+                    
+                    // Scroll to bottom on first content load
+                    if (!hasStartedStreaming) {
+                        setTimeout(() => {
                     feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
+                        }, 100);
+                        hasStartedStreaming = true;
+                    }
                 }
             }
         }
-
-        statusBadge.innerHTML = '<i class="fas fa-check-circle mr-1"></i>Complete';
-        statusBadge.classList.remove('bg-yellow-100', 'text-yellow-800');
-        statusBadge.classList.add('bg-green-100', 'text-green-800');
 
         // Save feedback
         const saveData = new URLSearchParams();
@@ -819,16 +1042,205 @@ async function requestAIFeedback() {
             }
         });
 
+        // Generate table of contents
+        generateTableOfContents(accumulatedContent);
+
     } catch (error) {
-        console.error('Failed to stream AI feedback:', error);
-        statusBadge.innerHTML = `<i class="fas fa-exclamation-circle mr-1"></i>Error: ${error.message}`;
-        statusBadge.classList.remove('bg-yellow-100', 'text-yellow-800');
-        statusBadge.classList.add('bg-red-100', 'text-red-800');
+        console.error('Failed to generate feedback:', error);
+        
+        // Handle AbortError separately (user stopped streaming)
+        if (error.name === 'AbortError' || isStreamingStopped) {
+            console.log('Request was aborted by user');
+            return; // Don't show error message for user-initiated stops
+        }
+        
         feedbackContainer.innerHTML = `<p class="text-red-600">Failed to generate feedback: ${error.message}</p>`;
+        statusBadge.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>Error';
+        statusBadge.classList.remove('bg-white', 'bg-opacity-20');
+        statusBadge.classList.add('bg-red-500', 'bg-opacity-20');
+        streamStatusBelow.classList.add('hidden');
     } finally {
-        // Re-enable button
+        // Re-enable button and hide stop button
         requestFeedbackBtn.disabled = false;
         requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
+        stopStreamingBtn.classList.add('hidden');
+        // Remove event listener
+        stopStreamingBtn.onclick = null;
+    }
+}
+
+// Generate table of contents from feedback content
+function generateTableOfContents(content) {
+    // Parse the content to find headings and sections
+    const lines = content.split('\n');
+    const toc = [];
+    let currentSection = '';
+    let currentSubsection = '';
+    
+    lines.forEach((line, index) => {
+        const trimmedLine = line.trim();
+        
+        // Check for main headings (## or ###)
+        if (trimmedLine.startsWith('##') && !trimmedLine.startsWith('###')) {
+            const heading = trimmedLine.replace(/^#+\s*/, '').trim();
+            if (heading && !heading.toLowerCase().includes('table of contents')) {
+                currentSection = heading;
+                toc.push({
+                    type: 'section',
+                    title: heading,
+                    level: 2,
+                    lineNumber: index + 1
+                });
+            }
+        }
+        // Check for subsections (###)
+        else if (trimmedLine.startsWith('###')) {
+            const heading = trimmedLine.replace(/^#+\s*/, '').trim();
+            if (heading) {
+                currentSubsection = heading;
+                toc.push({
+                    type: 'subsection',
+                    title: heading,
+                    level: 3,
+                    lineNumber: index + 1,
+                    parent: currentSection
+                });
+            }
+        }
+        // Check for numbered lists that might be sections
+        else if (/^\d+\.\s+[A-Z]/.test(trimmedLine)) {
+            const heading = trimmedLine.replace(/^\d+\.\s+/, '').trim();
+            if (heading && heading.length > 10) { // Only consider substantial headings
+                toc.push({
+                    type: 'numbered',
+                    title: heading,
+                    level: 2,
+                    lineNumber: index + 1
+                });
+            }
+        }
+    });
+    
+    // Display the table of contents
+    displayTableOfContents(toc);
+}
+
+// Display table of contents in the UI
+function displayTableOfContents(toc) {
+    const tocContainer = document.getElementById('feedbackTableOfContents');
+    if (!tocContainer) {
+        // Create TOC container if it doesn't exist
+        const feedbackResults = document.getElementById('feedbackResults');
+        const tocSection = document.createElement('div');
+        tocSection.className = 'mb-6';
+        tocSection.innerHTML = `
+            <div class="bg-white rounded-lg shadow-lg border border-gray-200">
+                <div class="bg-gradient-to-r from-purple-500 to-pink-600 px-6 py-4 rounded-t-lg">
+                    <div class="flex justify-between items-center">
+                        <div class="flex items-center">
+                            <i class="fas fa-list text-white text-xl mr-3"></i>
+                            <div>
+                                <h3 class="text-lg font-semibold text-white">Table of Contents</h3>
+                                <p class="text-purple-100 text-sm">Quick navigation for feedback sections</p>
+                            </div>
+                        </div>
+                        <button onclick="toggleTOC()" class="text-white hover:text-purple-200">
+                            <i class="fas fa-chevron-down" id="tocToggleIcon"></i>
+                        </button>
+                    </div>
+                </div>
+                <div id="feedbackTableOfContents" class="p-6">
+                    <!-- TOC content will be added here -->
+                </div>
+            </div>
+        `;
+        
+        // Insert TOC before the feedback content
+        const feedbackContent = feedbackResults.querySelector('.bg-white.rounded.shadow-lg');
+        feedbackResults.insertBefore(tocSection, feedbackContent);
+    }
+    
+    if (toc.length === 0) {
+        tocContainer.innerHTML = '<p class="text-gray-500 text-center py-4">No sections found in the feedback content.</p>';
+        return;
+    }
+    
+    let tocHTML = '<div class="space-y-2">';
+    
+    toc.forEach((item, index) => {
+        const indentClass = item.level === 3 ? 'ml-4' : '';
+        const iconClass = item.level === 2 ? 'fas fa-bookmark' : 'fas fa-angle-right';
+        const colorClass = item.level === 2 ? 'text-purple-600' : 'text-gray-600';
+        
+        tocHTML += `
+            <div class="flex items-center ${indentClass}">
+                <i class="${iconClass} ${colorClass} mr-2 text-sm"></i>
+                <button onclick="scrollToSection(${item.lineNumber})" 
+                        class="text-left hover:text-purple-600 hover:underline transition-colors duration-200 ${colorClass}">
+                    ${item.title}
+                </button>
+            </div>
+        `;
+    });
+    
+    tocHTML += '</div>';
+    tocContainer.innerHTML = tocHTML;
+}
+
+// Toggle table of contents visibility
+function toggleTOC() {
+    const tocContainer = document.getElementById('feedbackTableOfContents');
+    const toggleIcon = document.getElementById('tocToggleIcon');
+    
+    if (tocContainer.classList.contains('hidden')) {
+        tocContainer.classList.remove('hidden');
+        toggleIcon.classList.remove('fa-chevron-down');
+        toggleIcon.classList.add('fa-chevron-up');
+    } else {
+        tocContainer.classList.add('hidden');
+        toggleIcon.classList.remove('fa-chevron-up');
+        toggleIcon.classList.add('fa-chevron-down');
+    }
+}
+
+// Scroll to specific section in feedback content
+function scrollToSection(lineNumber) {
+    const feedbackContainer = document.getElementById('feedbackContent');
+    
+    // Check if feedbackContainer exists
+    if (!feedbackContainer) {
+        console.error('feedbackContent element not found');
+        return;
+    }
+    
+    const lines = feedbackContainer.textContent.split('\n');
+    
+    // Find the approximate position of the line
+    let currentPosition = 0;
+    for (let i = 0; i < Math.min(lineNumber - 1, lines.length); i++) {
+        currentPosition += lines[i].length + 1; // +1 for newline
+    }
+    
+    // Create a temporary marker element
+    const marker = document.createElement('div');
+    marker.id = 'scroll-marker';
+    marker.style.height = '1px';
+    marker.style.marginTop = '-50px'; // Offset for better visibility
+    
+    // Insert marker at the position
+    const textNode = feedbackContainer.firstChild;
+    if (textNode) {
+        feedbackContainer.insertBefore(marker, textNode);
+        
+        // Scroll to marker
+        marker.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        
+        // Remove marker after scrolling
+        setTimeout(() => {
+            if (marker.parentNode) {
+                marker.parentNode.removeChild(marker);
+            }
+        }, 1000);
     }
 }
 
@@ -1439,9 +1851,207 @@ function hideViewThesisModal() {
     document.getElementById('viewThesisModal').classList.add('hidden');
 }
 
-// Download thesis (placeholder)
-function downloadThesis() {
-    alert('This would download the thesis in a real implementation');
+// Download thesis
+async function downloadThesis() {
+    if (!currentThesisId) {
+        alert('No thesis selected for download.');
+        return;
+    }
+    
+    showLoading();
+    
+    try {
+        const response = await axios.get(`${API_BASE_URL}/download-thesis/${currentThesisId}`, {
+            headers: { 'Authorization': `Bearer ${authToken}` },
+            responseType: 'blob'
+        });
+        
+        // Create a download link
+        const url = window.URL.createObjectURL(new Blob([response.data]));
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', response.headers['content-disposition']?.split('filename=')[1] || 'thesis.pdf');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+        
+        hideViewThesisModal();
+    } catch (error) {
+        console.error('Failed to download thesis:', error);
+        alert('Failed to download thesis. Please try again.');
+    }
+    
+    hideLoading();
+}
+
+// Preview thesis
+async function previewThesis() {
+    if (!currentThesisId) {
+        alert('No thesis selected for preview.');
+        return;
+    }
+    
+    try {
+        // Get thesis info to determine file type
+        const response = await axios.get(`${API_BASE_URL}/my-theses`, {
+            headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        const thesis = response.data.find(t => t.id === currentThesisId);
+        if (!thesis) {
+            throw new Error('Thesis not found');
+        }
+        
+        // Show preview modal first
+        showThesisPreviewModal();
+        
+        // Set modal title and file info
+        document.getElementById('previewModalTitle').textContent = `Preview: ${thesis.filename}`;
+        document.getElementById('previewFileType').textContent = thesis.filename.split('.').pop().toUpperCase();
+        
+        // Show loading state
+        document.getElementById('previewLoading').classList.remove('hidden');
+        document.getElementById('pdfPreview').classList.add('hidden');
+        document.getElementById('textPreview').classList.add('hidden');
+        document.getElementById('previewError').classList.add('hidden');
+        document.getElementById('imagePreview').classList.add('hidden');
+        
+        // Get preview images from server
+        try {
+            const imagesResponse = await axios.get(`${API_BASE_URL}/thesis-preview-images/${currentThesisId}`, {
+                headers: { 'Authorization': `Bearer ${authToken}` }
+            });
+            
+            const images = imagesResponse.data.images;
+            
+            if (images && images.length > 0) {
+                // Display images
+                const imageContainer = document.getElementById('imagePreviewContainer');
+                imageContainer.innerHTML = '';
+                
+                images.forEach((imageData, index) => {
+                    const imageDiv = document.createElement('div');
+                    imageDiv.className = 'mb-4';
+                    imageDiv.innerHTML = `
+                        <div class="flex items-center justify-between mb-2">
+                            <h4 class="text-sm font-medium text-gray-700">Page ${imageData.page}</h4>
+                            <span class="text-xs text-gray-500">${imageData.width} × ${imageData.height}</span>
+                        </div>
+                        <div class="border border-gray-200 rounded-lg overflow-hidden">
+                            <img src="${imageData.image}" 
+                                 alt="Page ${imageData.page}" 
+                                 class="w-full h-auto max-h-96 object-contain"
+                                 style="max-width: 100%;">
+                        </div>
+                    `;
+                    imageContainer.appendChild(imageDiv);
+                });
+                
+                document.getElementById('imagePreview').classList.remove('hidden');
+                document.getElementById('previewLoading').classList.add('hidden');
+                
+                // Store text content if available (for DOC/DOCX)
+                if (images[0].text_content) {
+                    window.currentPreviewText = images[0].text_content;
+                }
+                
+            } else {
+                throw new Error('No preview images generated');
+            }
+            
+        } catch (error) {
+            console.error('Failed to load preview images:', error);
+            
+            // Fallback to old preview method for PDF
+            const fileExtension = thesis.filename.split('.').pop().toLowerCase();
+            
+            if (fileExtension === 'pdf') {
+                try {
+                    const previewUrl = `${API_BASE_URL}/download-thesis/${currentThesisId}`;
+                    const headers = { 'Authorization': `Bearer ${authToken}` };
+                    
+                    const pdfResponse = await fetch(previewUrl, { headers });
+                    if (!pdfResponse.ok) {
+                        throw new Error(`Failed to fetch PDF: ${pdfResponse.status}`);
+                    }
+                    
+                    const blob = await pdfResponse.blob();
+                    const url = window.URL.createObjectURL(blob);
+                    
+                    document.getElementById('pdfViewer').src = url;
+                    document.getElementById('pdfPreview').classList.remove('hidden');
+                    document.getElementById('previewLoading').classList.add('hidden');
+                    
+                } catch (pdfError) {
+                    throw new Error('Failed to load PDF preview');
+                }
+            } else {
+                document.getElementById('previewErrorMessage').textContent = 'Failed to generate preview. Please download the file to view it.';
+                document.getElementById('previewError').classList.remove('hidden');
+                document.getElementById('previewLoading').classList.add('hidden');
+            }
+        }
+        
+    } catch (error) {
+        console.error('Failed to preview thesis:', error);
+        // Ensure modal is shown even if there's an error
+        showThesisPreviewModal();
+        document.getElementById('previewModalTitle').textContent = 'Preview Error';
+        document.getElementById('previewErrorMessage').textContent = 'Failed to load preview. Please try again.';
+        document.getElementById('previewError').classList.remove('hidden');
+        document.getElementById('previewLoading').classList.add('hidden');
+    }
+}
+
+// Show thesis preview modal
+function showThesisPreviewModal() {
+    document.getElementById('thesisPreviewModal').classList.remove('hidden');
+}
+
+// Hide thesis preview modal
+function hideThesisPreviewModal() {
+    document.getElementById('thesisPreviewModal').classList.add('hidden');
+    // Clean up iframe src to prevent memory leaks
+    document.getElementById('pdfViewer').src = '';
+}
+
+// Copy preview text to clipboard
+function copyPreviewText() {
+    if (window.currentPreviewText) {
+        navigator.clipboard.writeText(window.currentPreviewText).then(() => {
+            // Show success message
+            const button = event.target.closest('button');
+            const originalText = button.innerHTML;
+            button.innerHTML = '<i class="fas fa-check mr-1"></i> Copied!';
+            button.classList.remove('bg-blue-600', 'hover:bg-blue-700');
+            button.classList.add('bg-green-600', 'hover:bg-green-700');
+            
+            setTimeout(() => {
+                button.innerHTML = originalText;
+                button.classList.remove('bg-green-600', 'hover:bg-green-700');
+                button.classList.add('bg-blue-600', 'hover:bg-blue-700');
+            }, 2000);
+        }).catch(err => {
+            console.error('Failed to copy text:', err);
+            alert('Failed to copy text to clipboard');
+        });
+    }
+}
+
+// Download preview text
+function downloadPreviewText() {
+    if (window.currentPreviewText) {
+        const blob = new Blob([window.currentPreviewText], { type: 'text/plain' });
+        const url = window.URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.setAttribute('download', 'thesis_content.txt');
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        window.URL.revokeObjectURL(url);
+    }
 }
 
 // Show loading overlay
@@ -1587,151 +2197,7 @@ function cleanStreamedText(text) {
 
 const requestFeedbackBtn = document.getElementById('requestFeedbackBtn');
 const feedbackResultsDiv = document.getElementById('feedbackResults');
-const feedbackContentDiv = document.getElementById('feedbackContent');
-const streamStatusSpan = document.getElementById('streamStatus');
-const noThesesForFeedbackDiv = document.getElementById('noThesesForFeedback');
 
-let currentFeedbackThesisId = null; // Keep track of the thesis being processed
-
-requestFeedbackBtn.addEventListener('click', async function () {
-    const thesisId = thesisSelect.value;
-    const modelID = document.getElementById('modelID').value.trim() || "meta-llama/Meta-Llama-3.1-8B-Instruct"; // Default model
-
-    if (!thesisId) {
-        alert('Please select a thesis.');
-        return;
-    }
-
-    // Show results section, hide no thesis message
-    feedbackResultsDiv.classList.remove('hidden');
-    noThesesForFeedbackDiv.classList.add('hidden');
-
-    // Reset content and status
-    feedbackContentDiv.innerHTML = '<p class="text-gray-500">Initializing feedback generation...</p>';
-    streamStatusSpan.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Connecting...';
-    streamStatusSpan.classList.remove('bg-green-100', 'text-green-800', 'bg-red-100', 'text-red-800');
-    streamStatusSpan.classList.add('bg-yellow-100', 'text-yellow-800');
-
-    // Disable button during request
-    requestFeedbackBtn.disabled = true;
-    requestFeedbackBtn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> Requesting...';
-
-    currentFeedbackThesisId = thesisId; // Set the ID for this request
-
-    try {
-        // Prepare form data
-        const data = new URLSearchParams();
-        data.append('custom_instructions', 'Please review this thesis and provide comprehensive feedback.');
-        data.append('predefined_questions[0]', 'What are the strengths?');
-        data.append('predefined_questions[1]', 'What areas need improvement?');
-        data.append('predefined_questions[2]', 'How well does the methodology align?');
-        data.append('predefined_questions[3]', 'Are there reference formatting issues?');
-        data.append('predefined_questions[4]', 'How well is the theoretical foundation presented?');
-
-        const url = `${API_BASE_URL}/request-ai-feedback?thesis_id=${encodeURIComponent(thesisId)}`;
-        const headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
-            'Authorization': `Bearer ${authToken}`
-        };
-
-        const response = await fetch(url, {
-            method: 'POST',
-            headers,
-            body: data.toString()
-        });
-
-        if (!response.ok || !response.body) {
-            throw new Error(`API request failed with status ${response.status}`);
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = '';
-        let accumulatedContent = '';
-
-        while (true) {
-            const { done, value } = await reader.read();
-            if (done) {
-                break;
-            }
-
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split('\n');
-            buffer = lines.pop() || '';
-
-            for (const line of lines) {
-                if (line.trim() === '') continue;
-                
-                // Handle Server-Sent Events format
-                if (line.startsWith('data: ')) {
-                    const data = line.substring(6); // Remove 'data: ' prefix
-                    if (data.trim() === '') continue;
-                    
-                    try {
-                        // Parse the JSON data
-                        const jsonData = JSON.parse(data);
-                        
-                        if (jsonData.type === 'content') {
-                            accumulatedContent += jsonData.content;
-                            // Convert accumulated markdown to HTML
-                            const htmlContent = marked.parse(accumulatedContent);
-                            // Sanitize HTML
-                            const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
-                            feedbackContainer.innerHTML = sanitizedHtml;
-                            feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
-                        } else if (jsonData.type === 'progress') {
-                            streamStatusSpan.innerHTML = `<i class="fas fa-spinner fa-spin mr-1"></i>${jsonData.content}`;
-                        } else if (jsonData.type === 'error') {
-                            throw new Error(jsonData.content);
-                        } else if (jsonData.type === 'complete') {
-                            // Stream completed
-                            break;
-                        }
-                    } catch (e) {
-                        if (e.message && e.message !== 'Unexpected end of JSON input') {
-                            throw e; // Re-throw actual errors
-                        }
-                        // Ignore JSON parsing errors for incomplete chunks
-                    }
-                } else {
-                    // Handle plain text (fallback)
-                    accumulatedContent += line;
-                    const htmlContent = marked.parse(accumulatedContent);
-                    const sanitizedHtml = DOMPurify ? DOMPurify.sanitize(htmlContent) : htmlContent;
-                    feedbackContainer.innerHTML = sanitizedHtml;
-                    feedbackContainer.scrollTop = feedbackContainer.scrollHeight;
-                }
-            }
-        }
-
-        // Stream finished successfully
-        streamStatusSpan.innerHTML = '<i class="fas fa-check-circle mr-1"></i>Complete';
-        streamStatusSpan.classList.remove('bg-yellow-100', 'text-yellow-800');
-        streamStatusSpan.classList.add('bg-green-100', 'text-green-800');
-
-        // Save feedback
-        const saveData = new URLSearchParams();
-        saveData.append('feedback_content', accumulatedContent);
-        await axios.post(`${API_BASE_URL}/save-ai-feedback?thesis_id=${thesisId}`, saveData, {
-            headers: { 
-                'Content-Type': 'application/x-www-form-urlencoded', 
-                'Authorization': `Bearer ${authToken}` 
-            }
-        });
-
-    } catch (error) {
-        console.error("AI Feedback Streaming Error:", error);
-        streamStatusSpan.innerHTML = `<i class="fas fa-exclamation-circle mr-1"></i>Error: ${error.message || 'Unknown error'}`;
-        streamStatusSpan.classList.remove('bg-yellow-100', 'text-yellow-800');
-        streamStatusSpan.classList.add('bg-red-100', 'text-red-800');
-        feedbackContentDiv.innerHTML = `<p class="text-red-600">Failed to generate feedback: ${error.message}</p>`;
-    } finally {
-        // Re-enable button
-        requestFeedbackBtn.disabled = false;
-        requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
-        currentFeedbackThesisId = null; // Clear the ID
-    }
-});
 
 // --- Helper function (if needed for updating list status) ---
 // function updateThesisStatusInList(thesisId, statusText) {
@@ -1753,18 +2219,28 @@ requestFeedbackBtn.addEventListener('click', async function () {
 
 // --- Ensure the feedback section is reset when switching theses or re-requesting ---
 function resetFeedbackDisplay() {
-    if (feedbackResultsDiv) feedbackResultsDiv.classList.add('hidden');
-    if (feedbackContentDiv) feedbackContentDiv.innerHTML = '';
-    if (streamStatusSpan) {
-        streamStatusSpan.innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Generating...';
-        streamStatusSpan.className = 'px-3 py-1 bg-white bg-opacity-20 text-white text-xs font-medium rounded-full'; // Reset to initial class
+    // Hide results section
+    document.getElementById('feedbackResults').classList.add('hidden');
+    
+    // Reset thesis select
+    document.getElementById('thesisSelect').value = '';
+    
+    // Clear feedback content
+    document.getElementById('feedbackContent').innerHTML = '';
+    
+    // Reset status
+    document.getElementById('streamStatus').innerHTML = '<i class="fas fa-spinner fa-spin mr-1"></i>Generating...';
+    document.getElementById('streamStatus').classList.remove('bg-green-500', 'bg-red-500', 'bg-opacity-20');
+    document.getElementById('streamStatus').classList.add('bg-white', 'bg-opacity-20');
+    
+    // Hide stream status below
+    document.getElementById('streamStatusBelow').classList.add('hidden');
+    
+    // Remove table of contents if it exists
+    const tocSection = document.querySelector('.bg-gradient-to-r.from-purple-500.to-pink-600');
+    if (tocSection) {
+        tocSection.closest('.mb-6').remove();
     }
-    // Re-enable button if it was disabled by a previous error
-    if (requestFeedbackBtn) {
-        requestFeedbackBtn.disabled = false;
-        requestFeedbackBtn.innerHTML = '<i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback';
-    }
-    currentFeedbackThesisId = null;
 }
 
 // You might call resetFeedbackDisplay() when:
@@ -1781,3 +2257,16 @@ function resetFeedbackDisplay() {
 
 // Example: Reset for 'Request New Feedback' button (assuming it exists and calls the main request function)
 // document.getElementById('requestNewFeedbackBtn')?.addEventListener('click', resetFeedbackDisplay); // Use optional chaining
+
+// Initialize Marked.js and Highlight.js
+document.addEventListener('DOMContentLoaded', function() {
+    // Initialize Marked.js
+    marked.setOptions({
+        breaks: true,
+        gfm: true,
+        highlight: function(code, lang) {
+            const language = hljs.getLanguage(lang) ? lang : 'plaintext';
+            return hljs.highlight(code, { language }).value;
+        }
+    });
+});

@@ -1,17 +1,18 @@
-# ThesisAI Server
+# ThesisAI Tool
 
-A FastAPI-based server for thesis analysis and feedback with AI integration.
+A FastAPI-based server for thesis analysis and feedback with AI integration and Graphical User Interface client.
 
 ## Installation
 
 1. Install dependencies:
 ```bash
+cd server
 pip install -r requirements.txt
 ```
 
 2. Set up environment variables:
 
-Navigate to the `server` directory and configure the environment settings:
+Navigate to the `server` directory (if you were not) and configure the environment settings:
 
 - Copy the `env_example.txt` file to `.env`
 - Edit the `.env` file with your API credentials and other preferred settings
@@ -39,32 +40,32 @@ python start_server.py
 
 ### Option 2: Direct execution
 ```bash
+cd server
 python app.py
 ```
 
 ### Option 3: Using uvicorn directly
 ```bash
+cd server
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ## Start Using the Tool with GUI
 
-The client interface is available through the `index.html` file located in the `client` directory. This directory contains all static files required for the web interface and can be hosted on any web server or static hosting platform of your choice.
-
-Simply navigate to the `client` directory and open `index.html` in your web browser, or deploy the entire `client` directory to your preferred hosting environment to access the graphical user interface.
+Simply navigate to the `client` directory and open `index.html` in your web browser, or deploy the entire `client` directory to your preferred hosting environment to access the graphical user interface. Remember to edit change `API_BASE_URL` in `main.js` if you do so.
 
 
 ## Testing
 
 Run the test script to verify everything is working:
 ```bash
+cd server
 python test_server.py
 ```
 
 ## API Endpoints
 
 - **API Documentation**: http://localhost:8000/docs
-- **Web Interface**: http://localhost:8000
 - **Health Check**: http://localhost:8000/me (requires authentication)
 
 ## Features
@@ -77,11 +78,13 @@ python test_server.py
 
 ## Default Users
 
-The server comes with pre-configured test users:
+The server comes with pre-configured test users.:
 
 - **Admin**: username: `admin`, password: `1234`
 - **Supervisor**: username: `gv`, password: `1234`
 - **Student**: username: `sv`, password: `1234`
+
+Delete `thesis_ai.db` for a clean database.
 
 ## File Structure
 
@@ -100,6 +103,6 @@ server/
 ## Troubleshooting
 
 1. **Import errors**: Make sure all dependencies are installed
-2. **API key errors**: Set the OPENROUTER_API_KEY environment variable
+2. **API key errors**: Set the API key environment variable
 3. **File permission errors**: Ensure the server has write permissions to the directories
 4. **Port already in use**: Change the port in the startup script or kill the existing process 

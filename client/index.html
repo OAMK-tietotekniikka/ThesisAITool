@@ -4,9 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>ThesisAI Dashboard</title>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="tailwind.css">
     <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dompurify@3.0.11/dist/purify.min.js"></script>
+    <!-- Marked.js for markdown parsing -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <!-- GitHub Markdown CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
+    <!-- Highlight.js for syntax highlighting -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/styles/github.min.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.8.0/highlight.min.js"></script>
+    <!-- MathJax for mathematical expressions -->
+    <script src="https://polyfill.io/v3/polyfill.min.js?features=es6"></script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
     <link rel="icon" href="favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="stylesheet" href="style.css">
@@ -438,27 +448,16 @@
                                     <p class="text-xs text-blue-700">Your thesis will be evaluated against OAMK's comprehensive assessment criteria covering academic rigor, methodology, and presentation quality.</p>
                                 </div>
                                 
-                                <div class="space-y-2">
-                                    <div class="flex items-center">
-                                        <input type="checkbox" id="academicQuality" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked disabled>
-                                        <label for="academicQuality" class="ml-2 block text-sm text-gray-700">Academic quality and theoretical framework</label>
-                                    </div>
-                                    <div class="flex items-center">
-                                        <input type="checkbox" id="methodology" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked disabled>
-                                        <label for="methodology" class="ml-2 block text-sm text-gray-700">Research methodology and data analysis</label>
-                                    </div>
-                                    <div class="flex items-center">
-                                        <input type="checkbox" id="presentation" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked disabled>
-                                        <label for="presentation" class="ml-2 block text-sm text-gray-700">Presentation quality and structure</label>
-                                    </div>
-                                    <div class="flex items-center">
-                                        <input type="checkbox" id="references" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked disabled>
-                                        <label for="references" class="ml-2 block text-sm text-gray-700">Reference formatting (Harvard style)</label>
-                                    </div>
-                                    <div class="flex items-center">
-                                        <input type="checkbox" id="practicalRelevance" class="h-4 w-4 text-indigo-600 focus:ring-indigo-500 border-gray-300 rounded" checked disabled>
-                                        <label for="practicalRelevance" class="ml-2 block text-sm text-gray-700">Practical relevance and professional development</label>
-                                    </div>
+                                <div class="mb-3 flex space-x-2">
+                                    <button type="button" id="selectAllBtn" class="px-3 py-1 text-xs bg-green-600 hover:bg-green-700 text-white rounded-md">
+                                        <i class="fas fa-check-square mr-1"></i> Select All
+                                    </button>
+                                    <button type="button" id="deselectAllBtn" class="px-3 py-1 text-xs bg-gray-600 hover:bg-gray-700 text-white rounded-md">
+                                        <i class="fas fa-square mr-1"></i> Deselect All
+                                    </button>
+                                </div>
+                                <div id="aiFeedbackCheckboxes" class="space-y-2">
+                                    <!-- Dynamic checkboxes will be loaded here -->
                                 </div>
                                 
                                 <div class="bg-gray-50 border-l-4 border-gray-400 p-3 rounded">
@@ -485,11 +484,13 @@
                             <button id="requestFeedbackBtn" class="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white rounded-md">
                                 <i class="fas fa-robot mr-2" aria-hidden="true"></i> Request AI Feedback
                             </button>
+                            <button id="stopStreamingBtn" class="px-4 py-2 bg-red-600 hover:bg-red-700 text-white rounded-md hidden">
+                                <i class="fas fa-stop mr-2" aria-hidden="true"></i> Stop
+                            </button>
                         </div>
                     </div>
                 </div>
                 
-                <!-- Feedback Results - Completely Rewritten -->
                 <!-- Feedback Results -->
                 <div id="feedbackResults" class="hidden">
                     <div class="bg-white rounded-lg shadow-lg border border-gray-200">
@@ -534,7 +535,18 @@
                                     <h4 class="text-lg font-medium text-gray-800">Detailed Feedback</h4>
                                 </div>
 
-                                <div id="feedbackContent" class="prose prose-indigo max-w-none p-4 bg-gray-50 rounded-md min-h-[150px] overflow-y-auto"></div>
+                                <div id="feedbackContent" class="markdown-body p-4 bg-gray-50 rounded-md min-h-[150px] overflow-y-auto max-h-[400px]"></div>
+                                
+                                <!-- Stream Status - shown below feedback content for long feedback -->
+                                <div id="streamStatusBelow" class="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-md hidden">
+                                    <div class="flex items-center">
+                                        <i class="fas fa-spinner fa-spin text-blue-600 mr-2"></i>
+                                        <span class="text-sm text-blue-800 font-medium">Generating feedback...</span>
+                                    </div>
+                                    <div class="mt-2 text-xs text-blue-600">
+                                        <span id="streamProgress">Processing...</span>
+                                    </div>
+                                </div>
                             </div>
 
                             <div class="flex flex-wrap gap-3 pt-4 border-t border-gray-200">
@@ -949,9 +961,109 @@
                 
                 <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
                     <button type="button" onclick="downloadThesis()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
-                        Download Thesis
+                        <i class="fas fa-download mr-2"></i> Download Thesis
+                    </button>
+                    <button type="button" onclick="previewThesis()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-green-600 text-base font-medium text-white hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        <i class="fas fa-eye mr-2"></i> Preview Thesis
                     </button>
                     <button type="button" onclick="hideViewThesisModal()" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
+                        Close
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Thesis Preview Modal -->
+    <div id="thesisPreviewModal" class="fixed z-50 inset-0 overflow-y-auto hidden">
+        <div class="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center sm:block sm:p-0">
+            <div class="fixed inset-0 transition-opacity" aria-hidden="true">
+                <div class="absolute inset-0 bg-gray-500 opacity-75"></div>
+            </div>
+            
+            <span class="hidden sm:inline-block sm:align-middle sm:h-screen" aria-hidden="true">&#8203;</span>
+            
+            <div class="inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-6xl sm:w-full">
+                <div class="bg-white px-4 pt-5 pb-4 sm:p-6 sm:pb-4">
+                    <div class="sm:flex sm:items-start">
+                        <div class="mt-3 text-center sm:mt-0 sm:ml-4 sm:text-left w-full">
+                            <div class="flex justify-between items-center mb-4">
+                                <h3 class="text-lg leading-6 font-medium text-gray-900" id="previewModalTitle">Thesis Preview</h3>
+                                <div class="flex items-center space-x-2">
+                                    <span id="previewFileType" class="px-2 py-1 bg-blue-100 text-blue-800 text-xs font-medium rounded"></span>
+                                    <span id="previewFileSize" class="px-2 py-1 bg-gray-100 text-gray-800 text-xs font-medium rounded"></span>
+                                </div>
+                            </div>
+                            
+                            <div class="mt-4">
+                                <!-- PDF Preview -->
+                                <div id="pdfPreview" class="hidden">
+                                    <iframe id="pdfViewer" class="w-full h-96 border border-gray-300 rounded-lg" frameborder="0"></iframe>
+                                </div>
+                                
+                                <!-- Text Preview -->
+                                <div id="textPreview" class="hidden">
+                                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h4 class="font-medium text-gray-800">Document Content</h4>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="copyPreviewText()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded">
+                                                    <i class="fas fa-copy mr-1"></i> Copy
+                                                </button>
+                                                <button onclick="downloadPreviewText()" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded">
+                                                    <i class="fas fa-download mr-1"></i> Download
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div id="previewTextContent" class="bg-white p-4 rounded border border-gray-200 max-h-96 overflow-y-auto text-sm leading-relaxed">
+                                            <!-- Text content will be added here -->
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Image Preview -->
+                                <div id="imagePreview" class="hidden">
+                                    <div class="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                                        <div class="flex items-center justify-between mb-4">
+                                            <h4 class="font-medium text-gray-800">Document Preview</h4>
+                                            <div class="flex items-center space-x-2">
+                                                <button onclick="copyPreviewText()" class="px-3 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs rounded">
+                                                    <i class="fas fa-copy mr-1"></i> Copy Text
+                                                </button>
+                                                <button onclick="downloadPreviewText()" class="px-3 py-1 bg-green-600 hover:bg-green-700 text-white text-xs rounded">
+                                                    <i class="fas fa-download mr-1"></i> Download Text
+                                                </button>
+                                            </div>
+                                        </div>
+                                        <div id="imagePreviewContainer" class="space-y-4">
+                                            <!-- Images will be added here -->
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                <!-- Loading State -->
+                                <div id="previewLoading" class="flex items-center justify-center py-8">
+                                    <div class="animate-spin rounded-full h-8 w-8 border-t-2 border-b-2 border-indigo-500 mr-3"></div>
+                                    <span class="text-gray-600">Loading preview...</span>
+                                </div>
+                                
+                                <!-- Error State -->
+                                <div id="previewError" class="hidden p-4 bg-red-50 border border-red-200 rounded-lg">
+                                    <div class="flex items-center">
+                                        <i class="fas fa-exclamation-triangle text-red-500 mr-2"></i>
+                                        <span class="text-red-800" id="previewErrorMessage">Failed to load preview</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="bg-gray-50 px-4 py-3 sm:px-6 sm:flex sm:flex-row-reverse">
+                    <button type="button" onclick="downloadThesis()" class="w-full inline-flex justify-center rounded-md border border-transparent shadow-sm px-4 py-2 bg-indigo-600 text-base font-medium text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:ml-3 sm:w-auto sm:text-sm">
+                        <i class="fas fa-download mr-2"></i> Download Original
+                    </button>
+                    <button type="button" onclick="hideThesisPreviewModal()" class="mt-3 w-full inline-flex justify-center rounded-md border border-gray-300 shadow-sm px-4 py-2 bg-white text-base font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 sm:mt-0 sm:ml-3 sm:w-auto sm:text-sm">
                         Close
                     </button>
                 </div>
@@ -970,7 +1082,6 @@
     <!-- main.js dependant -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.9.2/html2pdf.bundle.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-    
     <script src="main.js"></script>
 </body>
 </html>
