@@ -10,6 +10,7 @@ pip install -r requirements.txt
 ```
 
 2. Set up environment variables:
+
 Navigate to the `server` directory and configure the environment settings:
 
 - Copy the `env_example.txt` file to `.env`
