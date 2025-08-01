@@ -1,98 +1,104 @@
-# AI-Based Thesis Analysis & Feedback Tool
+# ThesisAI Server
 
-## 🧠 Overview
+A FastAPI-based server for thesis analysis and feedback with AI integration.
 
-This tool is designed to assist both students and thesis supervisors in the bachelor's thesis process by providing **automated analysis**, **review**, and **contextual feedback** on thesis drafts. It helps reduce repetitive feedback tasks and improves tracking of student progress through multiple versions.
+## Installation
 
-## 🎯 Key Features
+1. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
-### ✅ Automated Thesis Review & Feedback
+2. Set up environment variables:
+Navigate to the `server` directory and configure the environment settings:
 
-* **Criteria-Based Analysis**
-  Evaluates thesis drafts using customizable grading rubrics tailored to institutional or supervisor preferences.
+- Copy the `env_example.txt` file to `.env`
+- Edit the `.env` file with your API credentials and other preferred settings
 
-* **Common Issue Detection**
-  Identifies typical thesis problems like:
+This tool supports three major AI providers:
+- **OpenAI**
+- **DeepSeek**
+- **OpenRouter**
 
-  * Missing or incorrect references
-  * Unanchored figures or tables
-  * Vague goals or requirements
-  * Poor result analysis
-  * Lack of broader impact discussion
+You only need to configure one provider. The essential configuration parameters are:
 
-* **AI-Powered Commenting**
-  Delivers specific, context-aware feedback similar to a human supervisor, avoiding generic suggestions.
+```env
+ACTIVE_AI_PROVIDER=your_preferred_provider
+your_preferred_provider_API_KEY=your_api_key_here
+```
 
----
+Replace `your_preferred_provider` with one of the supported provider names (openai, deepseek, or openrouter) and substitute `your_api_key_here` with your actual API key.
 
-### 📈 Progressive Feedback Tracking
+## Running the Server
 
-* **Version Comparison**
-  Detects changes across thesis versions and verifies whether previous comments have been addressed.
+### Option 1: Using the startup script (recommended)
+```bash
+python start_server.py
+```
 
-* **Student Progress Monitoring**
-  Highlights recurring issues, tracks improvements, and recommends areas for future focus.
+### Option 2: Direct execution
+```bash
+python app.py
+```
 
----
+### Option 3: Using uvicorn directly
+```bash
+uvicorn app:app --host 0.0.0.0 --port 8000 --reload
+```
 
-### 👥 User Interaction & Workflow
+## Start Using the Tool with GUI
 
-* **Student Mode**
+The client interface is available through the `index.html` file located in the `client` directory. This directory contains all static files required for the web interface and can be hosted on any web server or static hosting platform of your choice.
 
-  * Upload drafts for automated feedback
-  * Receive detailed, actionable suggestions
-  * Ask for clarification or elaboration
+Simply navigate to the `client` directory and open `index.html` in your web browser, or deploy the entire `client` directory to your preferred hosting environment to access the graphical user interface.
 
-* **Supervisor Mode**
 
-  * Review and customize AI feedback
-  * Add manual comments
-  * Track student revisions and growth
+## Testing
 
-* **Collaboration & Integration**
+Run the test script to verify everything is working:
+```bash
+python test_server.py
+```
 
-  * Enables direct student-supervisor interaction within the tool
-  * Supports Word, PDF, and LaTeX document formats
+## API Endpoints
 
----
+- **API Documentation**: http://localhost:8000/docs
+- **Web Interface**: http://localhost:8000
+- **Health Check**: http://localhost:8000/me (requires authentication)
 
-### ⚙️ Customization & Adaptability
+## Features
 
-* **Grading Criteria Customization**
-  Easily adjust rubrics to match institutional standards.
+- User authentication with JWT tokens
+- File upload and processing (PDF, DOCX, TXT)
+- AI-powered thesis analysis and grading
+- Supervisor feedback system
+- Role-based access control (student, supervisor, admin)
 
-* **Language & Style Configuration**
-  Supports institution-specific writing norms and formatting rules.
+## Default Users
 
----
+The server comes with pre-configured test users:
 
-### 🧩 AI & Technical Components
+- **Admin**: username: `admin`, password: `1234`
+- **Supervisor**: username: `gv`, password: `1234`
+- **Student**: username: `sv`, password: `1234`
 
-* **Natural Language Processing (NLP)**
-  For academic tone, grammar, and coherence analysis.
+## File Structure
 
-* **Machine Learning (ML)**
-  Continuously improves suggestions by learning from feedback history.
+```
+server/
+├── app.py                 # Main FastAPI application
+├── requirements.txt       # Python dependencies
+├── start_server.py       # Startup script with error handling
+├── test_server.py        # Test script
+├── README.md            # This file
+├── thesis_uploads/      # Uploaded thesis files
+├── feedback_files/      # Supervisor feedback files
+└── ai_responses/        # AI analysis responses
+```
 
-* **Multi-format Document Processing**
-  Extracts and processes text from DOCX, PDF, and LaTeX files.
+## Troubleshooting
 
----
-
-## 🔮 Future Enhancements
-
-* **Integration with Reference Managers**
-  Automatic citation validation with tools like Zotero, Mendeley, and EndNote.
-
-* **AI-Generated Thesis Summaries**
-  Quick summaries to assist supervisors in reviewing overall thesis content efficiently.
-
----
-
-## 📌 License
-
-*You can use this project freely.*
-
-## 🚀 Getting Started
-
-*Coming soon: installation and usage instructions.*
+1. **Import errors**: Make sure all dependencies are installed
+2. **API key errors**: Set the OPENROUTER_API_KEY environment variable
+3. **File permission errors**: Ensure the server has write permissions to the directories
+4. **Port already in use**: Change the port in the startup script or kill the existing process 
