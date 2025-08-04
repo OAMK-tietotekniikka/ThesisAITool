@@ -18,7 +18,7 @@ Navigate to the `server` directory (if you were not) and configure the environme
 - Copy the `env_example.txt` file to `.env`
 - Edit the `.env` file with your API credentials and other preferred settings
 
-This tool supports three major AI providers:
+This tool has been tested with the three major AI providers listed below. However, it should work with any AI providers that implement the OpenAI-compatible API
 - **OpenAI**
 - **DeepSeek**
 - **OpenRouter**
